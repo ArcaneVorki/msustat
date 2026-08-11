@@ -475,7 +475,7 @@
       </div>
       <button class="go" id="goBtn" type="submit">Search</button>
     </form>
-    <div class="hint">try <button type="button" data-demo="Flame">Flame</button></div>
+    <div class="hint">try <button type="button" data-demo="DBX92">DBX92</button></div>
 
     <div class="status" id="status"><span class="spinner"></span><span id="statusText">Working…</span></div>
     <div class="error-box" id="errorBox"></div>
@@ -629,13 +629,12 @@
   const NESTED_STAT_KEYS = ['str','dex','int','luk','pad','mad'];
   const NESTED_LABELS = { str:'STR', dex:'DEX', int:'INT', luk:'LUK', pad:'Physical ATT', mad:'Magic ATT' };
 
-  const SCALAR_STAT_KEYS = ['cuc','ruc','attackSpeed','knockback','recoveryHp','recoveryMp',
-    'senseExp','willExp','insightExp','charismaExp','charmExp','craftExp'];
+  const SCALAR_STAT_KEYS = ['cuc','knockback','recoveryHp','recoveryMp',
+    'senseExp','insightExp','craftExp'];
   const SCALAR_LABELS = {
-    cuc:'CUC', ruc:'RUC', attackSpeed:'Attack Speed', knockback:'Knockback',
+    cuc:'CUC', knockback:'Knockback',
     recoveryHp:'HP Recovery', recoveryMp:'MP Recovery', senseExp:'Sense EXP',
-    willExp:'Will EXP', insightExp:'Insight EXP', charismaExp:'Charisma EXP',
-    charmExp:'Charm EXP', craftExp:'Craft EXP'
+    insightExp:'Insight EXP', craftExp:'Craft EXP'
   };
 
   const SLOT_LABELS = {
@@ -660,6 +659,14 @@
 
   function statLine(totals, keys, labels){
     return keys.filter(k => totals[k]).map(k => `<span><b>${labels[k]}</b> +${fmt(totals[k])}</span>`).join('');
+  }
+
+  // Potential/bonus-potential option labels look like "ATT: +12%" or "Critical Damage: +9%".
+  // Parse the percentage ones out so they can be summed by stat name across all gear.
+  function parsePercentPotential(label){
+    const m = /^(.*):\s*\+?(-?\d+(?:\.\d+)?)\s*%$/.exec(String(label).trim());
+    if (!m) return null;
+    return { name: m[1].trim(), value: parseFloat(m[2]) };
   }
 
   function fmt(n){
@@ -710,6 +717,23 @@
   function render({ common, apStat, arcane, itemResults }){
     const totals = {};
     itemResults.forEach(r => { if (r.ok) addItemStats(totals, r.item.stats); });
+
+    // Sum every percentage-based potential/bonus-potential line (ATT%, Critical Damage%, etc.)
+    // across all equipped items, grouped by stat name.
+    const potentialTotals = {};
+    itemResults.forEach(r => {
+      if (!r.ok) return;
+      ['potential','bonusPotential'].forEach(group => {
+        const g = r.item.enhance && r.item.enhance[group];
+        if (!g) return;
+        ['option1','option2','option3'].forEach(o => {
+          const opt = g[o];
+          if (!opt || !opt.label) return;
+          const parsed = parsePercentPotential(opt.label);
+          if (parsed) potentialTotals[parsed.name] = (potentialTotals[parsed.name] || 0) + parsed.value;
+        });
+      });
+    });
 
     const failedCount = itemResults.filter(r => !r.ok).length;
 
@@ -796,7 +820,7 @@
     const totalHtml = `
       <div class="panel total-panel">
         <h3>Combined Equipment Stats <span class="n">Σ across ${itemResults.filter(r=>r.ok).length} items</span></h3>
-        <p class="desc">Sum of every base stat line across all equipped gear (starforce/potential-enhanced totals included, percentage potential lines listed on each item instead).</p>
+        <p class="desc">Sum of every flat base stat line across all equipped gear.</p>
         <div class="stat-grid">
           ${[...NESTED_STAT_KEYS, ...SCALAR_STAT_KEYS].filter(k => totals[k]).map(k => `
             <div class="stat amber"><div class="k">${escapeHtml(NESTED_LABELS[k] || SCALAR_LABELS[k])}</div><div class="v">+${fmt(totals[k])}</div></div>
@@ -805,7 +829,19 @@
       </div>
     `;
 
-    els.results.innerHTML = charHtml + arcaneHtml + apHtml + equipHtml + totalHtml;
+    const potentialTotalHtml = `
+      <div class="panel total-panel">
+        <h3>Combined Potential Lines <span class="n">Σ % across potential + bonus potential</span></h3>
+        <p class="desc">Every percentage-based potential and bonus potential line (ATT%, Critical Damage%, etc.) added together by stat, across all equipped gear.</p>
+        <div class="stat-grid">
+          ${Object.entries(potentialTotals).sort((a,b) => b[1]-a[1]).map(([name, v]) => `
+            <div class="stat violet"><div class="k">${escapeHtml(name)}</div><div class="v">+${fmt(v)}%</div></div>
+          `).join('') || '<div class="empty-note">No percentage potential lines found on this gear.</div>'}
+        </div>
+      </div>
+    `;
+
+    els.results.innerHTML = charHtml + arcaneHtml + apHtml + equipHtml + totalHtml + potentialTotalHtml;
     els.results.classList.add('show');
     els.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
