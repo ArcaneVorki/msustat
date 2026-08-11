@@ -497,7 +497,7 @@
   // direct browser fetches get CORS-blocked even though the server itself responds fine.
   // Set PROXY_BASE to a proxy you control (see proxy-worker.js) that forwards the request
   // and adds the header. Leave '' to call msu.io directly (works once/if they allow-list you).
-  const PROXY_BASE = 'https://msustat-proxy.YOUR-SUBDOMAIN.workers.dev/?url=';
+  const PROXY_BASE = 'https://crimson-frost-04ea.arcanevorki.workers.dev/?url=';
 
   const API_ROOT = 'https://msu.io/navigator/api/navigator';
   const proxied = (url) => PROXY_BASE ? PROXY_BASE + encodeURIComponent(url) : url;
