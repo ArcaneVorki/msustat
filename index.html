@@ -493,9 +493,18 @@
 <script>
 (function(){
 
-  const SEARCH_API = 'https://msu.io/navigator/api/navigator/search?keyword=';
-  const CHAR_API   = (key) => `https://msu.io/navigator/api/navigator/characters/${encodeURIComponent(key)}/info`;
-  const ITEM_API   = (key) => `https://msu.io/navigator/api/navigator/items/${encodeURIComponent(key)}/info`;
+  // msu.io's API doesn't send Access-Control-Allow-Origin for github.io origins, so
+  // direct browser fetches get CORS-blocked even though the server itself responds fine.
+  // Set PROXY_BASE to a proxy you control (see proxy-worker.js) that forwards the request
+  // and adds the header. Leave '' to call msu.io directly (works once/if they allow-list you).
+  const PROXY_BASE = 'https://msustat-proxy.YOUR-SUBDOMAIN.workers.dev/?url=';
+
+  const API_ROOT = 'https://msu.io/navigator/api/navigator';
+  const proxied = (url) => PROXY_BASE ? PROXY_BASE + encodeURIComponent(url) : url;
+
+  const SEARCH_API = (keyword) => proxied(`${API_ROOT}/search?keyword=${encodeURIComponent(keyword)}`);
+  const CHAR_API   = (key) => proxied(`${API_ROOT}/characters/${encodeURIComponent(key)}/info`);
+  const ITEM_API   = (key) => proxied(`${API_ROOT}/items/${encodeURIComponent(key)}/info`);
 
   const els = {
     form: document.getElementById('searchForm'),
@@ -548,11 +557,11 @@
   }
 
   function corsHelp(url){
-    return `Couldn't reach the msu.io API from the browser (likely a CORS restriction on
-      <code>${url}</code>). This page calls the API directly from client-side JS — if msu.io
-      doesn't send permissive CORS headers for browser origins, the request will be blocked
-      silently by the browser. Try again, or run this through a CORS-friendly proxy if it
-      persists.`;
+    return `Couldn't read the response from <code>${url}</code> — msu.io's API doesn't send
+      an <code>Access-Control-Allow-Origin</code> header for this site, so the browser blocks
+      it even though the request itself succeeds. Set <code>PROXY_BASE</code> near the top of
+      the script to a deployed copy of <code>proxy-worker.js</code> to fix this — see the
+      README for the two-minute Cloudflare Worker setup.`;
   }
 
   async function runSearch(keyword){
@@ -565,10 +574,10 @@
 
     let data;
     try{
-      data = await fetchJson(SEARCH_API + encodeURIComponent(keyword));
+      data = await fetchJson(SEARCH_API(keyword));
     }catch(err){
       setBusy(false); setStatus(null);
-      setError(corsHelp(SEARCH_API + encodeURIComponent(keyword)));
+      setError(corsHelp(SEARCH_API(keyword)));
       return;
     }
 

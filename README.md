@@ -24,14 +24,29 @@ Everything runs client-side, in the visitor's browser — there's no backend, bu
 
 No `npm install`, no build — it's one HTML file.
 
-## If searches fail immediately
+## CORS: msu.io blocks this by default — you need the proxy
 
-The browser calls `msu.io`'s API directly from JavaScript running on your GitHub Pages domain.
-If `msu.io` doesn't send permissive CORS headers for that origin, the browser will block the
-response and the page will show a connection error. That's a server-side setting on msu.io's
-end, not something fixable from this page's code — the workaround is routing requests through
-a small proxy/serverless function you control that forwards to the same API and adds the
-`Access-Control-Allow-Origin` header.
+Confirmed via HAR: `msu.io`'s API responds `200 OK` but never sends an
+`Access-Control-Allow-Origin` header for a `github.io` origin, so the browser fetches the
+response and then throws it away before your page's JS can read it (`net::ERR_FAILED`,
+empty body). Visiting the API URL directly in your browser works because that's a top-level
+navigation — CORS only applies to cross-origin `fetch()`/`XHR` calls made *from* a page's JS.
+
+There's no fix from this page's code alone. `proxy-worker.js` is a small Cloudflare Worker
+that sits in between: your page calls the worker, the worker calls msu.io server-to-server
+(no CORS involved there), and adds the missing header back on the way out.
+
+**Deploy it (free, ~2 minutes):**
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** → **Create** → **Worker**.
+2. Name it (e.g. `msustat-proxy`), click **Deploy** to scaffold the default worker.
+3. Click **Edit code**, paste in `proxy-worker.js`'s contents, click **Deploy** again.
+4. Copy the worker's URL — looks like `https://msustat-proxy.<you>.workers.dev`.
+5. In `index.html`, find `const PROXY_BASE = ...` near the top of the `<script>` block and set it to:
+   `https://msustat-proxy.<you>.workers.dev/?url=`
+6. Commit and push. Searches now route through the worker instead of hitting msu.io directly.
+
+The worker only ever forwards to `msu.io` (hard-coded allow-list), so it can't be abused as an
+open proxy to other sites.
 
 ## Notes / assumptions
 
