@@ -438,6 +438,19 @@
   }
 
   /* Marginal stat calculator */
+  .calc-subhead{
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-dim);
+    margin: 18px 0 8px;
+  }
+  .calc-subhead span{
+    color: var(--text-faint);
+    text-transform: none;
+    letter-spacing: normal;
+  }
   .calc-grid{
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
@@ -816,13 +829,15 @@
   // Wires up the Calculate button. statTotalPct = { str, dex, int, luk } -> gear % bonus
   // (own-stat % + All Stat %) for that stat. classStats = { primary:[...], secondary:[...] }
   // for the searched character's class, or null if unrecognized. Both captured from render().
-  function wireCalculator(statTotalPct, classStats){
+  function wireCalculator(statTotalPct, classStats, pocketStats){
     const btn = document.getElementById('calcBtn');
     if (!btn) return;
     btn.addEventListener('click', () => {
       const val = id => parseFloat(document.getElementById(id).value) || 0;
       const raw = { str: val('calcStr'), dex: val('calcDex'), int: val('calcInt'), luk: val('calcLuk') };
       const pct = { att: val('calcAtt'), boss: val('calcBoss'), damage: val('calcDamage') };
+      const withoutPocket = { str: val('calcNoPocketStr'), dex: val('calcNoPocketDex'), int: val('calcNoPocketInt'), luk: val('calcNoPocketLuk') };
+      const withPocket = { str: val('calcWithPocketStr'), dex: val('calcWithPocketDex'), int: val('calcWithPocketInt'), luk: val('calcWithPocketLuk') };
 
       // total_stat = sum(primary stats) + 0.25 x sum(secondary stats) — a secondary point is
       // worth a quarter of a primary point toward the character's effective total.
@@ -850,10 +865,13 @@
         statGain[k] = (contribution / denom) * 100;
       });
 
-      // % power gained by adding one percentage point, relative to the 100% baseline plus
-      // whatever's already active.
-      const pctGain = {};
-      Object.entries(pct).forEach(([k, v]) => { pctGain[k] = (1 / (100 + v)) * 100; });
+      // % power gained by adding one percentage point. ATT% has its own 100% baseline.
+      // Boss% and Damage% share one combined baseline — they stack into the same multiplier
+      // against boss monsters, so 1% of either is worth exactly the same amount.
+      const pctGain = { att: (1 / (100 + pct.att)) * 100 };
+      const bossDamageGain = (1 / (100 + pct.boss + pct.damage)) * 100;
+      pctGain.boss = bossDamageGain;
+      pctGain.damage = bossDamageGain;
 
       const totalStatLine = classStats && totalStat
         ? `<p class="desc" style="margin:0 0 12px;">Effective total stat (${classStats.primary.map(k=>STAT_LABELS_SHORT[k]).join('+')} + 0.25 × ${classStats.secondary.length ? classStats.secondary.map(k=>STAT_LABELS_SHORT[k]).join('+') : '—'}): <b style="color:var(--text)">${totalStat.toLocaleString('en-US',{maximumFractionDigits:2})}</b></p>`
@@ -870,7 +888,51 @@
           </div>`;
       }).join('');
 
-      document.getElementById('calcOutput').innerHTML = totalStatLine + rows;
+      // --- Base stat, solved from the pocket item's known raw stats + its own All Stat %,
+      // using the before/after fully-buffed totals: ---
+      // difference = pocket_raw_stat x (1 + current_total_%/100) + base x (pocket_all_stat_%/100)
+      let baseHtml = '';
+      if (!pocketStats){
+        baseHtml = `<p class="desc">No pocket item found on this character's equipped gear — equip one to unlock the base-stat solve.</p>`;
+      } else if (!pocketStats.statrPct){
+        baseHtml = `<p class="desc">The equipped pocket item doesn't carry an All Stat % bonus, so base stat can't be solved from it.</p>`;
+      } else {
+        const baseStats = {};
+        ['str','dex','int','luk'].forEach(k => {
+          const diff = withPocket[k] - withoutPocket[k];
+          if (!diff) return;
+          const pocketRaw = pocketStats.raw[k] || 0;
+          const existingMult = 1 + (statTotalPct[k] || 0) / 100;
+          const numerator = diff - pocketRaw * existingMult;
+          baseStats[k] = numerator / (pocketStats.statrPct / 100);
+        });
+
+        const baseEntries = Object.entries(baseStats);
+        baseHtml = `
+          <div class="calc-row">
+            <div class="calc-row-head">Base Stats <span class="calc-gain">solved from pocket +${fmt(pocketStats.statrPct)}% all stat, before/after difference</span></div>
+            <div class="calc-row-equiv">${baseEntries.length
+              ? baseEntries.map(([k,v]) => `<span><b>${fmt(Math.round(v))}</b> ${STAT_LABELS_SHORT[k]}</span>`).join('')
+              : '<span class="empty-note">Enter before/after pocket totals above to solve</span>'}</div>
+          </div>`;
+
+        if (classStats && totalStat){
+          const relevant = [
+            ...classStats.primary.map(k => ({ k, role: 'primary' })),
+            ...classStats.secondary.map(k => ({ k, role: 'secondary' })),
+          ].filter(({k}) => baseStats[k] != null);
+
+          baseHtml += relevant.map(({k, role}) => {
+            const gain = (baseStats[k] * 0.01 / totalStat) * 100;
+            return `
+              <div class="calc-row">
+                <div class="calc-row-head">1% ${STAT_LABELS_SHORT[k]} <span class="calc-gain">(${role}) ≈ ${gain.toFixed(3)}% power gain</span></div>
+              </div>`;
+          }).join('');
+        }
+      }
+
+      document.getElementById('calcOutput').innerHTML = totalStatLine + rows + baseHtml;
     });
   }
 
@@ -894,6 +956,17 @@
           if (parsed) potentialTotals[parsed.name] = (potentialTotals[parsed.name] || 0) + parsed.value;
         });
       });
+    });
+
+    // Some items (e.g. Pink Holy Cup) carry an All Stat % bonus as a base item stat — a
+    // "statr" field shaped like str/dex/int/luk ({total, base, enhance, extra}) rather than a
+    // potential line. It's the same unit (%), so it folds into the same "All Stat" bucket.
+    itemResults.forEach(r => {
+      if (!r.ok) return;
+      const statrTotal = r.item.stats?.statr?.total;
+      if (typeof statrTotal === 'number' && statrTotal){
+        potentialTotals['All Stat'] = (potentialTotals['All Stat'] || 0) + statrTotal;
+      }
     });
 
     const failedCount = itemResults.filter(r => !r.ok).length;
@@ -962,7 +1035,10 @@
       const item = r.item;
       const itemTotals = {};
       addItemStats(itemTotals, item.stats);
-      const lines = statLine(itemTotals, NESTED_STAT_KEYS, NESTED_LABELS) + statLine(itemTotals, SCALAR_STAT_KEYS, SCALAR_LABELS);
+      const statrPct = item.stats?.statr?.total;
+      const lines = statLine(itemTotals, NESTED_STAT_KEYS, NESTED_LABELS)
+        + statLine(itemTotals, SCALAR_STAT_KEYS, SCALAR_LABELS)
+        + (typeof statrPct === 'number' && statrPct ? `<span><b>All Stat</b> +${fmt(statrPct)}%</span>` : '');
 
       const potLabels = [];
       ['potential','bonusPotential'].forEach(group => {
@@ -1017,12 +1093,41 @@
       </div>
     `;
 
+    const pocketEntry = itemResults.find(r => r.ok && r.slot === 'pocket');
+    const pocketStats = pocketEntry ? {
+      raw: {
+        str: pocketEntry.item.stats?.str?.total || 0,
+        dex: pocketEntry.item.stats?.dex?.total || 0,
+        int: pocketEntry.item.stats?.int?.total || 0,
+        luk: pocketEntry.item.stats?.luk?.total || 0,
+      },
+      statrPct: pocketEntry.item.stats?.statr?.total || 0,
+    } : null;
+
     const calcHtml = `
       <div class="panel total-panel">
         <h3>Marginal Stat Calculator <span class="n">${classStats ? escapeHtml(common.job?.jobName || '') + ' · primary ' + classStats.primary.map(k=>STAT_LABELS_SHORT[k]).join('+') + (classStats.secondary.length ? ' · secondary ' + classStats.secondary.map(k=>STAT_LABELS_SHORT[k]).join('+') : '') : ''}</span></h3>
         <p class="desc">Enter your fully-buffed in-game values. Blank counts as 0. total_stat = primary + 0.25 × secondary,
           and STR/DEX/INT/LUK gains use this character's gear % bonus (own stat % + All Stat %${allStatPct ? `, currently +${fmt(allStatPct)}%` : ''})
-          against that total; ATT%/Boss%/Damage% use the value you type as their own baseline.</p>
+          against that total; ATT% has its own baseline, Boss%/Damage% share one since they stack together against boss monsters.</p>
+
+        <div class="calc-subhead" style="margin-top:0;">Stats without pocket equipped <span>(full buffs)</span></div>
+        <div class="calc-grid">
+          <label>STR<input type="number" id="calcNoPocketStr" min="0" placeholder="0"></label>
+          <label>DEX<input type="number" id="calcNoPocketDex" min="0" placeholder="0"></label>
+          <label>INT<input type="number" id="calcNoPocketInt" min="0" placeholder="0"></label>
+          <label>LUK<input type="number" id="calcNoPocketLuk" min="0" placeholder="0"></label>
+        </div>
+
+        <div class="calc-subhead">Stats with pocket equipped <span>(full buffs)</span></div>
+        <div class="calc-grid">
+          <label>STR<input type="number" id="calcWithPocketStr" min="0" placeholder="0"></label>
+          <label>DEX<input type="number" id="calcWithPocketDex" min="0" placeholder="0"></label>
+          <label>INT<input type="number" id="calcWithPocketInt" min="0" placeholder="0"></label>
+          <label>LUK<input type="number" id="calcWithPocketLuk" min="0" placeholder="0"></label>
+        </div>
+
+        <div class="calc-subhead">Total stats <span>(with full buffs)</span></div>
         <div class="calc-grid">
           <label>STR<input type="number" id="calcStr" min="0" placeholder="0"></label>
           <label>DEX<input type="number" id="calcDex" min="0" placeholder="0"></label>
@@ -1032,13 +1137,14 @@
           <label>Boss%<input type="number" id="calcBoss" min="0" placeholder="0"></label>
           <label>Damage%<input type="number" id="calcDamage" min="0" placeholder="0"></label>
         </div>
+
         <button class="go" id="calcBtn" type="button" style="margin-top:14px;">Calculate</button>
         <div id="calcOutput"></div>
       </div>
     `;
 
     els.results.innerHTML = charHtml + arcaneHtml + apHtml + equipHtml + totalHtml + potentialTotalHtml + calcHtml;
-    wireCalculator(statTotalPct, classStats);
+    wireCalculator(statTotalPct, classStats, pocketStats);
     els.results.classList.add('show');
     els.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
