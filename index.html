@@ -1120,6 +1120,7 @@
           { label: '24% All Stat', calc: () => allStatPctPerPoint != null ? 24 * allStatPctPerPoint : null },
           { label: '24% Primary', calc: () => primaryPctPerPoint != null ? 24 * primaryPctPerPoint : null },
           { label: '21% Primary', calc: () => primaryPctPerPoint != null ? 21 * primaryPctPerPoint : null },
+          { label: '21% Primary + 6% All Stat', calc: () => (allStatPctPerPoint != null && primaryPctPerPoint != null) ? 21 * primaryPctPerPoint + 6 * allStatPctPerPoint : null },
           { label: '15% All Stat', calc: () => allStatPctPerPoint != null ? 15 * allStatPctPerPoint : null },
           { label: '9% Primary', calc: () => primaryPctPerPoint != null ? 9 * primaryPctPerPoint : null },
           { label: '+1 Primary Stat / 10 Lv (round down)', calc: () => (levelBlocks != null && primaryPointGain != null) ? levelBlocks * 1 * primaryPointGain : null },
