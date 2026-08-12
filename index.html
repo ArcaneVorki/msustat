@@ -437,6 +437,66 @@
     background: linear-gradient(180deg, rgba(139,123,255,0.06), var(--surface));
   }
 
+  /* Marginal stat calculator */
+  .calc-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 12px;
+  }
+  .calc-grid label{
+    display:flex;
+    flex-direction:column;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .calc-grid input{
+    background: var(--bg-soft);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    padding: 9px 10px;
+    width: 100%;
+  }
+  .calc-grid input:focus{
+    border-color: var(--violet);
+    box-shadow: 0 0 0 3px rgba(139,123,255,0.18);
+  }
+  #calcOutput{ margin-top: 18px; display:flex; flex-direction:column; gap: 10px; }
+  .calc-row{
+    background: var(--bg-soft);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .calc-row-head{
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+  .calc-row-head .calc-gain{
+    font-family: var(--font-mono);
+    font-weight: 400;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    margin-left: 6px;
+  }
+  .calc-row-equiv{
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--amber);
+    display:flex;
+    flex-wrap:wrap;
+    gap: 6px 16px;
+  }
+  .calc-row-equiv b{ font-size: 15px; }
+
   footer{
     margin-top: 60px;
     padding-top: 24px;
@@ -645,47 +705,6 @@
     pocket:'Pocket', badge:'Badge', emblem:'Emblem'
   };
 
-  // Class -> primary/secondary stat(s). Stat keys line up with apStat / arcaneSymbols.totalStat /
-  // the equipment-total keys used elsewhere on this page (str, dex, int, luk, hp).
-  const CLASS_STAT_TABLE = [
-    [['Hero','Paladin','Dark Knight'], ['str'], ['dex']],
-    [['Bowmaster','Marksman','Mercedes','Wind Archer','Wild Hunter','Pathfinder','Mechanic','Corsair'], ['dex'], ['str']],
-    [['Buccaneer','Cannoneer','Ark','Shade','Thunder Breaker','Mihile','Demon Slayer','Adele','Aran','Zero','Kaiser','Dawn Warrior','Hayato','Blaster'], ['str'], ['dex']],
-    [['Luminous','Fire/Poison Archmage','Fire Poison Archmage','Ice/Lightning Archmage','Ice Lightning Archmage','Bishop','Battle Mage','Evan','Kanna','Illium','Lara','Kinesis','Beast Tamer'], ['int'], ['luk']],
-    [['Night Lord','Night Walker','Phantom','Hoyoung','Khali'], ['luk'], ['dex']],
-    [['Shadower','Dual Blade','Cadena'], ['luk'], ['dex','str']],
-    [['Xenon'], ['str','dex','luk'], []],
-    [['Demon Avenger'], ['hp'], ['str']],
-  ];
-
-  const STAT_LABEL_ALL = { str:'STR', dex:'DEX', int:'INT', luk:'LUK', hp:'HP' };
-
-  const STAT_POTENTIAL_ALIASES = {
-    str: ['str'], dex: ['dex'], int: ['int'], luk: ['luk'], hp: ['hp', 'max hp'],
-  };
-  const ALL_STAT_ALIASES = ['all stat', 'all stats'];
-
-  function normalizeClassName(s){
-    return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
-  }
-
-  function lookupClassStats(jobName){
-    const norm = normalizeClassName(jobName);
-    for (const [names, primary, secondary] of CLASS_STAT_TABLE){
-      if (names.some(n => normalizeClassName(n) === norm)) return { primary, secondary };
-    }
-    return null;
-  }
-
-  function sumPotentialByAliases(potentialTotals, aliases){
-    let sum = 0;
-    Object.entries(potentialTotals).forEach(([k, v]) => {
-      const norm = k.toLowerCase().trim();
-      if (aliases.includes(norm)) sum += v;
-    });
-    return sum;
-  }
-
   function addItemStats(totals, stats){
     if (!stats) return;
     NESTED_STAT_KEYS.forEach(k=>{
@@ -703,11 +722,23 @@
   }
 
   // Potential/bonus-potential option labels look like "ATT: +12%" or "Critical Damage: +9%".
-  // Parse the percentage ones out so they can be summed by stat name across all gear.
+  // msu.io labels the All Stat % option "STATR" rather than "All Stat" — normalize it here so
+  // both the per-item display and the combined totals read (and group) correctly.
+  const POTENTIAL_NAME_ALIASES = { statr: 'All Stat' };
+
   function parsePercentPotential(label){
     const m = /^(.*):\s*\+?(-?\d+(?:\.\d+)?)\s*%$/.exec(String(label).trim());
     if (!m) return null;
-    return { name: m[1].trim(), value: parseFloat(m[2]) };
+    let name = m[1].trim();
+    const canon = POTENTIAL_NAME_ALIASES[name.toLowerCase()];
+    if (canon) name = canon;
+    return { name, value: parseFloat(m[2]) };
+  }
+
+  // Renders a raw potential label using the same name normalization, for display on each item card.
+  function friendlyPotentialLabel(label){
+    const parsed = parsePercentPotential(label);
+    return parsed ? `${parsed.name}: +${fmt(parsed.value)}%` : label;
   }
 
   function fmt(n){
@@ -755,6 +786,95 @@
     render({ common, apStat, arcane, itemResults });
   }
 
+  const STAT_LABELS_SHORT = { str:'STR', dex:'DEX', int:'INT', luk:'LUK' };
+  const PCT_LABELS_SHORT = { att:'ATT%', boss:'Boss%', damage:'Damage%' };
+
+  // Class -> primary/secondary raw stat(s), used only for the total_stat formula in the
+  // marginal calculator: total_stat = sum(primary) + 0.25 * sum(secondary).
+  const CLASS_STAT_TABLE = [
+    [['Hero','Paladin','Dark Knight'], ['str'], ['dex']],
+    [['Bowmaster','Marksman','Mercedes','Wind Archer','Wild Hunter','Pathfinder','Mechanic','Corsair'], ['dex'], ['str']],
+    [['Buccaneer','Cannoneer','Ark','Shade','Thunder Breaker','Mihile','Demon Slayer','Adele','Aran','Zero','Kaiser','Dawn Warrior','Hayato','Blaster'], ['str'], ['dex']],
+    [['Luminous','Fire/Poison Archmage','Fire Poison Archmage','Ice/Lightning Archmage','Ice Lightning Archmage','Bishop','Battle Mage','Evan','Kanna','Illium','Lara','Kinesis','Beast Tamer'], ['int'], ['luk']],
+    [['Night Lord','Night Walker','Phantom','Hoyoung','Khali'], ['luk'], ['dex']],
+    [['Shadower','Dual Blade','Cadena'], ['luk'], ['dex','str']],
+    [['Xenon'], ['str','dex','luk'], []],
+  ];
+
+  function normalizeClassName(s){
+    return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+  }
+
+  function lookupClassStats(jobName){
+    const norm = normalizeClassName(jobName);
+    for (const [names, primary, secondary] of CLASS_STAT_TABLE){
+      if (names.some(n => normalizeClassName(n) === norm)) return { primary, secondary };
+    }
+    return null;
+  }
+
+  // Wires up the Calculate button. statTotalPct = { str, dex, int, luk } -> gear % bonus
+  // (own-stat % + All Stat %) for that stat. classStats = { primary:[...], secondary:[...] }
+  // for the searched character's class, or null if unrecognized. Both captured from render().
+  function wireCalculator(statTotalPct, classStats){
+    const btn = document.getElementById('calcBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const val = id => parseFloat(document.getElementById(id).value) || 0;
+      const raw = { str: val('calcStr'), dex: val('calcDex'), int: val('calcInt'), luk: val('calcLuk') };
+      const pct = { att: val('calcAtt'), boss: val('calcBoss'), damage: val('calcDamage') };
+
+      // total_stat = sum(primary stats) + 0.25 x sum(secondary stats) — a secondary point is
+      // worth a quarter of a primary point toward the character's effective total.
+      let totalStat = null;
+      let roleOf = () => 'primary'; // fallback when class is unrecognized: treat entered stats independently
+      if (classStats){
+        const primarySum = classStats.primary.reduce((s, k) => s + (raw[k] || 0), 0);
+        const secondarySum = classStats.secondary.reduce((s, k) => s + (raw[k] || 0), 0);
+        totalStat = primarySum + 0.25 * secondarySum;
+        roleOf = (k) => classStats.primary.includes(k) ? 'primary' : (classStats.secondary.includes(k) ? 'secondary' : 'none');
+      }
+
+      // % power gained by adding one raw point to a given stat, as a share of total_stat.
+      // A primary point contributes its full (1 + gear%) value; a secondary point contributes
+      // only a quarter of that, since that's all it adds to total_stat.
+      const statGain = {};
+      Object.entries(raw).forEach(([k, v]) => {
+        if (v <= 0) return;
+        const role = roleOf(k);
+        if (role === 'none') return; // this stat doesn't feed this class's total_stat at all
+        const mult = 1 + (statTotalPct[k] || 0) / 100;
+        const denom = classStats ? totalStat : v; // no class recognized -> fall back to old per-stat denominator
+        if (!denom) return;
+        const contribution = role === 'secondary' ? 0.25 * mult : mult;
+        statGain[k] = (contribution / denom) * 100;
+      });
+
+      // % power gained by adding one percentage point, relative to the 100% baseline plus
+      // whatever's already active.
+      const pctGain = {};
+      Object.entries(pct).forEach(([k, v]) => { pctGain[k] = (1 / (100 + v)) * 100; });
+
+      const totalStatLine = classStats && totalStat
+        ? `<p class="desc" style="margin:0 0 12px;">Effective total stat (${classStats.primary.map(k=>STAT_LABELS_SHORT[k]).join('+')} + 0.25 × ${classStats.secondary.length ? classStats.secondary.map(k=>STAT_LABELS_SHORT[k]).join('+') : '—'}): <b style="color:var(--text)">${totalStat.toLocaleString('en-US',{maximumFractionDigits:2})}</b></p>`
+        : classStats === null ? `<p class="desc" style="margin:0 0 12px;">Class not recognized — treating each entered stat's own value as its denominator instead of a combined total_stat.</p>` : '';
+
+      const rows = Object.entries(pctGain).map(([pk, pg]) => {
+        const equivalents = Object.entries(statGain).map(([sk, sg]) =>
+          `<span><b>${(pg / sg).toFixed(2)}</b> ${STAT_LABELS_SHORT[sk]}</span>`
+        ).join('');
+        return `
+          <div class="calc-row">
+            <div class="calc-row-head">1% ${PCT_LABELS_SHORT[pk]} <span class="calc-gain">≈ ${pg.toFixed(3)}% power gain</span></div>
+            <div class="calc-row-equiv">${equivalents || '<span class="empty-note">Enter a relevant STR/DEX/INT/LUK value above to compare</span>'}</div>
+          </div>`;
+      }).join('');
+
+      document.getElementById('calcOutput').innerHTML = totalStatLine + rows;
+    });
+  }
+
+
   function render({ common, apStat, arcane, itemResults }){
     const totals = {};
     itemResults.forEach(r => { if (r.ok) addItemStats(totals, r.item.stats); });
@@ -778,29 +898,20 @@
 
     const failedCount = itemResults.filter(r => !r.ok).length;
 
-    // --- Total Primary Stat -------------------------------------------
-    // total_primary = (AP base + combined equipment stat) x (1 + (primary% + all-stat%)/100) + arcane stat
-    // For multi-stat classes (Xenon) each component stat is computed the same way and summed.
-    const jobName = common.job?.jobName || '';
-    const classStats = lookupClassStats(jobName);
-    const allStatPct = sumPotentialByAliases(potentialTotals, ALL_STAT_ALIASES);
-
-    let primaryBreakdown = null;
-    if (classStats){
-      const components = classStats.primary.map(statKey => {
-        const apBase = apStat?.[statKey]?.base ?? 0;
-        const equipStat = totals[statKey] || 0;
-        const arcaneStat = arcane?.totalStat?.[statKey] || 0;
-        const primaryPct = sumPotentialByAliases(potentialTotals, STAT_POTENTIAL_ALIASES[statKey] || []);
-        const multiplier = 1 + (primaryPct + allStatPct) / 100;
-        const total = (apBase + equipStat) * multiplier + arcaneStat;
-        return { statKey, apBase, equipStat, arcaneStat, primaryPct, multiplier, total };
-      });
-      primaryBreakdown = {
-        components,
-        grandTotal: components.reduce((sum, c) => sum + c.total, 0),
-      };
+    // Each raw stat's total % bonus from gear = its own potential lines (e.g. "DEX: +X%")
+    // plus "All Stat" potential lines. Used by the marginal-gain calculator below.
+    function getPct(name){
+      const hit = Object.entries(potentialTotals).find(([k]) => k.toLowerCase() === name.toLowerCase());
+      return hit ? hit[1] : 0;
     }
+    const allStatPct = getPct('All Stat');
+    const statTotalPct = {
+      str: getPct('STR') + allStatPct,
+      dex: getPct('DEX') + allStatPct,
+      int: getPct('INT') + allStatPct,
+      luk: getPct('LUK') + allStatPct,
+    };
+    const classStats = lookupClassStats(common.job?.jobName);
 
     const charHtml = `
       <div class="char-card">
@@ -870,7 +981,7 @@
             </div>
           </div>
           <div class="lines">${lines || '<span class="empty-note">No base stat lines</span>'}</div>
-          ${potLabels.length ? `<div class="pot">${potLabels.map(l=>`· ${escapeHtml(l)}`).join('')}</div>` : ''}
+          ${potLabels.length ? `<div class="pot">${potLabels.map(l=>`· ${escapeHtml(friendlyPotentialLabel(l))}`).join('')}</div>` : ''}
         </div>`;
     }).join('');
 
@@ -906,30 +1017,28 @@
       </div>
     `;
 
-    const primaryStatHtml = classStats ? `
+    const calcHtml = `
       <div class="panel total-panel">
-        <h3>Total Primary Stat <span class="n">${escapeHtml(jobName)} · primary: ${classStats.primary.map(k=>STAT_LABEL_ALL[k]).join(' + ')}${classStats.secondary.length ? ' · secondary: '+classStats.secondary.map(k=>STAT_LABEL_ALL[k]).join(' + ') : ''}</span></h3>
-        <p class="desc">(AP base + equipment total) × (1 + (primary% + all-stat%) / 100) + arcane symbol stat${primaryBreakdown.components.length > 1 ? ', summed across each primary component stat' : ''}. All-stat potential: +${fmt(allStatPct)}%.</p>
-        <div class="stat-grid">
-          ${primaryBreakdown.components.map(c => `
-            <div class="stat violet">
-              <div class="k">${STAT_LABEL_ALL[c.statKey]} — AP ${fmt(c.apBase)} + Equip ${fmt(c.equipStat)}, ×${c.multiplier.toFixed(3)}, +Arcane ${fmt(c.arcaneStat)}</div>
-              <div class="v">${fmt(Math.round(c.total))}</div>
-            </div>
-          `).join('')}
-          ${primaryBreakdown.components.length > 1 ? `
-            <div class="stat amber"><div class="k">Total (all components)</div><div class="v">${fmt(Math.round(primaryBreakdown.grandTotal))}</div></div>
-          ` : ''}
+        <h3>Marginal Stat Calculator <span class="n">${classStats ? escapeHtml(common.job?.jobName || '') + ' · primary ' + classStats.primary.map(k=>STAT_LABELS_SHORT[k]).join('+') + (classStats.secondary.length ? ' · secondary ' + classStats.secondary.map(k=>STAT_LABELS_SHORT[k]).join('+') : '') : ''}</span></h3>
+        <p class="desc">Enter your fully-buffed in-game values. Blank counts as 0. total_stat = primary + 0.25 × secondary,
+          and STR/DEX/INT/LUK gains use this character's gear % bonus (own stat % + All Stat %${allStatPct ? `, currently +${fmt(allStatPct)}%` : ''})
+          against that total; ATT%/Boss%/Damage% use the value you type as their own baseline.</p>
+        <div class="calc-grid">
+          <label>STR<input type="number" id="calcStr" min="0" placeholder="0"></label>
+          <label>DEX<input type="number" id="calcDex" min="0" placeholder="0"></label>
+          <label>INT<input type="number" id="calcInt" min="0" placeholder="0"></label>
+          <label>LUK<input type="number" id="calcLuk" min="0" placeholder="0"></label>
+          <label>ATT%<input type="number" id="calcAtt" min="0" placeholder="0"></label>
+          <label>Boss%<input type="number" id="calcBoss" min="0" placeholder="0"></label>
+          <label>Damage%<input type="number" id="calcDamage" min="0" placeholder="0"></label>
         </div>
-      </div>
-    ` : `
-      <div class="panel">
-        <h3>Total Primary Stat</h3>
-        <p class="desc">Class "${escapeHtml(jobName || 'unknown')}" isn't in the built-in stat table — add it to <code>CLASS_STAT_TABLE</code> near the top of the script to enable this calculation.</p>
+        <button class="go" id="calcBtn" type="button" style="margin-top:14px;">Calculate</button>
+        <div id="calcOutput"></div>
       </div>
     `;
 
-    els.results.innerHTML = charHtml + arcaneHtml + apHtml + equipHtml + totalHtml + potentialTotalHtml + primaryStatHtml;
+    els.results.innerHTML = charHtml + arcaneHtml + apHtml + equipHtml + totalHtml + potentialTotalHtml + calcHtml;
+    wireCalculator(statTotalPct, classStats);
     els.results.classList.add('show');
     els.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
