@@ -837,8 +837,10 @@
 
   // Wires up the Calculate button. statTotalPct = { str, dex, int, luk } -> gear % bonus
   // (own-stat % + All Stat %) for that stat. classStats = { primary:[...], secondary:[...] }
-  // for the searched character's class, or null if unrecognized. Both captured from render().
-  function wireCalculator(statTotalPct, classStats, pocketStats){
+  // for the searched character's class, or null if unrecognized. level is the character's
+  // level pulled from the character API (common.level), used for the per-10-levels stat rows.
+  // Both captured from render().
+  function wireCalculator(statTotalPct, classStats, pocketStats, level){
     const btn = document.getElementById('calcBtn');
     if (!btn) return;
 
@@ -956,6 +958,32 @@
         primarySecondaryRows = rowsForRole(classStats.primary, 'primary') + rowsForRole(classStats.secondary, 'secondary');
       }
 
+      // Some sources of stat (e.g. certain buffs/passives) grant +N primary or secondary stat
+      // per 10 character levels, rounded down — e.g. level 252 -> floor(252/10) = 25 blocks,
+      // so a "+1 per 10 levels" source is worth 25 points. Same underlying calculation as the
+      // regular 1-point primary/secondary rows above, just scaled up by however many points
+      // that level bracket actually grants.
+      let levelStatRows = '';
+      if (classStats && totalStat && typeof level === 'number' && level > 0){
+        const levelBlocks = Math.floor(level / 10);
+        const buildLevelRows = (keys, role, perBlock) => keys.map(k => {
+          const points = levelBlocks * perBlock;
+          const mult = 1 + (statTotalPct[k] || 0) / 100;
+          const contribution = role === 'secondary' ? 0.25 * mult : mult;
+          const gain = (contribution * points / totalStat) * 100;
+          return `
+          <div class="calc-row">
+            <div class="calc-row-head">+${perBlock} ${STAT_LABELS_SHORT[k]} / 10 Lv <span class="calc-gain">(${role}, Lv.${level} → ${points} pts) ≈ ${gain.toFixed(3)}% power gain</span></div>
+            <div class="calc-row-equiv">${equivalentsHtml(statGain, gain)}</div>
+          </div>`;
+        }).join('');
+        levelStatRows =
+          buildLevelRows(classStats.primary, 'primary', 1) +
+          buildLevelRows(classStats.primary, 'primary', 2) +
+          buildLevelRows(classStats.secondary, 'secondary', 1) +
+          buildLevelRows(classStats.secondary, 'secondary', 2);
+      }
+
       // --- Base stat, solved from the pocket item's known raw stats + its own All Stat %,
       // using the before/after fully-buffed totals: ---
       // difference = pocket_raw_stat x (1 + current_total_%/100) + base x (pocket_all_stat_%/100)
@@ -1040,7 +1068,7 @@
         }
       }
 
-      document.getElementById('calcOutput').innerHTML = totalStatLine + rows + baseAttRow + primarySecondaryRows + baseHtml;
+      document.getElementById('calcOutput').innerHTML = totalStatLine + rows + baseAttRow + primarySecondaryRows + levelStatRows + baseHtml;
     });
   }
 
@@ -1260,7 +1288,7 @@
     `;
 
     els.results.innerHTML = charHtml + arcaneHtml + apHtml + equipHtml + totalHtml + potentialTotalHtml + calcHtml;
-    wireCalculator(statTotalPct, classStats, pocketStats);
+    wireCalculator(statTotalPct, classStats, pocketStats, common.level);
     els.results.classList.add('show');
     els.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
