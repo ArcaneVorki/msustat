@@ -870,24 +870,45 @@
       return entries || '<span class="empty-note">Enter a relevant STR/DEX/INT/LUK value above to compare</span>';
     }
 
-    btn.addEventListener('click', () => {
-      const val = id => parseFloat(document.getElementById(id).value) || 0;
-      const withoutPocket = { str: val('calcNoPocketStr'), dex: val('calcNoPocketDex'), int: val('calcNoPocketInt'), luk: val('calcNoPocketLuk') };
-      const withPocket = { str: val('calcWithPocketStr'), dex: val('calcWithPocketDex'), int: val('calcWithPocketInt'), luk: val('calcWithPocketLuk') };
-      const raw = (toggle && toggle.checked)
-        ? { ...withPocket }
-        : { str: val('calcStr'), dex: val('calcDex'), int: val('calcInt'), luk: val('calcLuk') };
-      const pct = { att: val('calcAtt'), boss: val('calcBoss'), damage: val('calcDamage'), critDmg: val('calcCritDmg') };
-      const baseAtt = val('calcBaseAtt');
+    // total_stat = sum(primary stats) + 0.25 x sum(secondary stats) — a secondary point is
+    // worth a quarter of a primary point toward the character's effective total.
+    function computeTotalStat(raw){
+      if (!classStats) return null;
+      const primarySum = classStats.primary.reduce((s, k) => s + (raw[k] || 0), 0);
+      const secondarySum = classStats.secondary.reduce((s, k) => s + (raw[k] || 0), 0);
+      return primarySum + 0.25 * secondarySum;
+    }
 
-      // total_stat = sum(primary stats) + 0.25 x sum(secondary stats) — a secondary point is
-      // worth a quarter of a primary point toward the character's effective total.
-      let totalStat = null;
+    // --- Base stat, solved from the pocket item's known raw stats + its own All Stat %,
+    // using the before/after fully-buffed totals: ---
+    // difference = pocket_raw_stat x (1 + current_total_%/100) + base x (pocket_all_stat_%/100)
+    // This only depends on the pocket before/after inputs and the character's gear %, so it's
+    // solved once and reused for both the main calc and the Customized Math calc.
+    function solveBaseStats(withPocket, withoutPocket){
+      if (!pocketStats){
+        return { solvedBaseStats: null, note: `No pocket item found on this character's equipped gear — equip one to unlock the base-stat solve.` };
+      }
+      if (!pocketStats.statrPct){
+        return { solvedBaseStats: null, note: `The equipped pocket item doesn't carry an All Stat % bonus, so base stat can't be solved from it.` };
+      }
+      const baseStats = {};
+      ['str','dex','int','luk'].forEach(k => {
+        const diff = withPocket[k] - withoutPocket[k];
+        if (!diff) return;
+        const pocketRaw = pocketStats.raw[k] || 0;
+        const existingMult = 1 + (statTotalPct[k] || 0) / 100;
+        const numerator = diff - pocketRaw * existingMult;
+        baseStats[k] = numerator / (pocketStats.statrPct / 100);
+      });
+      return { solvedBaseStats: baseStats, note: null };
+    }
+
+    // Builds the full calculator output HTML for one set of inputs. Used both for the main
+    // "Calculate" button and for the "Customized Math" (Adjustments +/- and Final Stats) button,
+    // so the two share identical math.
+    function buildOutput(raw, pct, baseAtt, totalStat, solvedBaseStats, baseNote, finalSum){
       let roleOf = () => 'primary'; // fallback when class is unrecognized: treat entered stats independently
       if (classStats){
-        const primarySum = classStats.primary.reduce((s, k) => s + (raw[k] || 0), 0);
-        const secondarySum = classStats.secondary.reduce((s, k) => s + (raw[k] || 0), 0);
-        totalStat = primarySum + 0.25 * secondarySum;
         roleOf = (k) => classStats.primary.includes(k) ? 'primary' : (classStats.secondary.includes(k) ? 'secondary' : 'none');
       }
 
@@ -919,8 +940,9 @@
       pctGain.boss = bossDamageGain;
       pctGain.damage = bossDamageGain;
 
-      const totalStatLine = classStats && totalStat
-        ? `<p class="desc" style="margin:0 0 12px;">Effective total stat (${classStats.primary.map(k=>STAT_LABELS_SHORT[k]).join('+')} + 0.25 × ${classStats.secondary.length ? classStats.secondary.map(k=>STAT_LABELS_SHORT[k]).join('+') : '—'}): <b style="color:var(--text)">${totalStat.toLocaleString('en-US',{maximumFractionDigits:2})}</b></p>`
+      const finalNote = finalSum ? ` <span style="color:var(--text-dim)">(includes ${finalSum > 0 ? '+' : ''}${fmt(finalSum)} from Final Stats)</span>` : '';
+      const totalStatLine = classStats && totalStat != null
+        ? `<p class="desc" style="margin:0 0 12px;">Effective total stat (${classStats.primary.map(k=>STAT_LABELS_SHORT[k]).join('+')} + 0.25 × ${classStats.secondary.length ? classStats.secondary.map(k=>STAT_LABELS_SHORT[k]).join('+') : '—'}): <b style="color:var(--text)">${totalStat.toLocaleString('en-US',{maximumFractionDigits:2})}</b>${finalNote}</p>`
         : classStats === null ? `<p class="desc" style="margin:0 0 12px;">Class not recognized — treating each entered stat's own value as its denominator instead of a combined total_stat.</p>` : '';
 
       const rows = Object.entries(pctGain).map(([pk, pg]) => `
@@ -984,28 +1006,11 @@
           buildLevelRows(classStats.secondary, 'secondary', 2);
       }
 
-      // --- Base stat, solved from the pocket item's known raw stats + its own All Stat %,
-      // using the before/after fully-buffed totals: ---
-      // difference = pocket_raw_stat x (1 + current_total_%/100) + base x (pocket_all_stat_%/100)
       let baseHtml = '';
-      let solvedBaseStats = null; // captured for the Potential Ranking section below
-      if (!pocketStats){
-        baseHtml = `<p class="desc">No pocket item found on this character's equipped gear — equip one to unlock the base-stat solve.</p>`;
-      } else if (!pocketStats.statrPct){
-        baseHtml = `<p class="desc">The equipped pocket item doesn't carry an All Stat % bonus, so base stat can't be solved from it.</p>`;
+      if (!solvedBaseStats){
+        baseHtml = `<p class="desc">${baseNote}</p>`;
       } else {
-        const baseStats = {};
-        ['str','dex','int','luk'].forEach(k => {
-          const diff = withPocket[k] - withoutPocket[k];
-          if (!diff) return;
-          const pocketRaw = pocketStats.raw[k] || 0;
-          const existingMult = 1 + (statTotalPct[k] || 0) / 100;
-          const numerator = diff - pocketRaw * existingMult;
-          baseStats[k] = numerator / (pocketStats.statrPct / 100);
-        });
-        solvedBaseStats = baseStats;
-
-        const baseEntries = Object.entries(baseStats);
+        const baseEntries = Object.entries(solvedBaseStats);
         baseHtml = `
           <div class="calc-row">
             <div class="calc-row-head">Base Stats <span class="calc-gain">solved from pocket +${fmt(pocketStats.statrPct)}% all stat, before/after difference</span></div>
@@ -1018,15 +1023,15 @@
           const relevant = [
             ...classStats.primary.map(k => ({ k, role: 'primary' })),
             ...classStats.secondary.map(k => ({ k, role: 'secondary' })),
-          ].filter(({k}) => baseStats[k] != null);
+          ].filter(({k}) => solvedBaseStats[k] != null);
 
           baseHtml += relevant.map(({k, role}) => {
             // 1% of the solved base stat's power gain. A primary stat's base value feeds
             // total_stat directly; a secondary stat's only feeds it at 0.25x, per the game's
             // formula: (0.01 x secondary_stat x 0.25) / effective_total_stat.
             const gain = role === 'secondary'
-              ? (0.01 * baseStats[k] * 0.25 / totalStat) * 100
-              : (baseStats[k] * 0.01 / totalStat) * 100;
+              ? (0.01 * solvedBaseStats[k] * 0.25 / totalStat) * 100
+              : (solvedBaseStats[k] * 0.01 / totalStat) * 100;
             return `
               <div class="calc-row">
                 <div class="calc-row-head">1% ${STAT_LABELS_SHORT[k]} <span class="calc-gain">(${role}) ≈ ${gain.toFixed(3)}% power gain</span></div>
@@ -1036,11 +1041,11 @@
 
           // 1% All Stat bumps every base stat — primary AND secondary — by 1% at once:
           // (primary_base x 0.01 + 0.25 x 0.01 x total_secondary_base) / effective_total_stat.
-          const havePrimaryBase = classStats.primary.some(k => baseStats[k] != null);
-          const haveSecondaryBase = classStats.secondary.some(k => baseStats[k] != null);
+          const havePrimaryBase = classStats.primary.some(k => solvedBaseStats[k] != null);
+          const haveSecondaryBase = classStats.secondary.some(k => solvedBaseStats[k] != null);
           if (havePrimaryBase || haveSecondaryBase){
-            const primaryBaseSum = classStats.primary.reduce((s, k) => s + (baseStats[k] || 0), 0);
-            const secondaryBaseSum = classStats.secondary.reduce((s, k) => s + (baseStats[k] || 0), 0);
+            const primaryBaseSum = classStats.primary.reduce((s, k) => s + (solvedBaseStats[k] || 0), 0);
+            const secondaryBaseSum = classStats.secondary.reduce((s, k) => s + (solvedBaseStats[k] || 0), 0);
             const allStatGain = ((primaryBaseSum * 0.01 + 0.25 * 0.01 * secondaryBaseSum) / totalStat) * 100;
 
             // Same power gain, re-expressed in each of the four comparison units the calc
@@ -1167,9 +1172,75 @@
           ${unrankedNote}`;
       }
 
-      document.getElementById('calcOutput').innerHTML = totalStatLine + rows + baseAttRow + primarySecondaryRows + levelStatRows + baseHtml + potentialRankingHtml;
+      return totalStatLine + rows + baseAttRow + primarySecondaryRows + levelStatRows + baseHtml + potentialRankingHtml;
+    }
+
+    // Reads the main "Total stats (with full buffs)" panel's current input values, exactly as
+    // the Calculate button does, without needing a prior click — used by both the main button
+    // and the Customized Math button so the latter always reflects whatever is currently typed.
+    function readBaseline(){
+      const val = id => parseFloat(document.getElementById(id).value) || 0;
+      const withoutPocket = { str: val('calcNoPocketStr'), dex: val('calcNoPocketDex'), int: val('calcNoPocketInt'), luk: val('calcNoPocketLuk') };
+      const withPocket = { str: val('calcWithPocketStr'), dex: val('calcWithPocketDex'), int: val('calcWithPocketInt'), luk: val('calcWithPocketLuk') };
+      const raw = (toggle && toggle.checked)
+        ? { ...withPocket }
+        : { str: val('calcStr'), dex: val('calcDex'), int: val('calcInt'), luk: val('calcLuk') };
+      const pct = { att: val('calcAtt'), boss: val('calcBoss'), damage: val('calcDamage'), critDmg: val('calcCritDmg') };
+      const baseAtt = val('calcBaseAtt');
+      const totalStat = computeTotalStat(raw);
+      const { solvedBaseStats, note: baseNote } = solveBaseStats(withPocket, withoutPocket);
+      return { raw, pct, baseAtt, totalStat, solvedBaseStats, baseNote };
+    }
+
+    btn.addEventListener('click', () => {
+      const { raw, pct, baseAtt, totalStat, solvedBaseStats, baseNote } = readBaseline();
+      document.getElementById('calcOutput').innerHTML = buildOutput(raw, pct, baseAtt, totalStat, solvedBaseStats, baseNote, 0);
     });
+
+    // "Customized Math": reveals 9 "Adjustments +/-" boxes (mirroring the Total Stats panel,
+    // positive or negative) plus 4 "Final Stat" boxes, and runs the exact same calculation a
+    // second time with those adjustments layered on top — into its own output area so the
+    // original results above stay untouched.
+    const customBtn = document.getElementById('customBtn');
+    const customPanel = document.getElementById('customPanel');
+    if (customBtn && customPanel){
+      customBtn.addEventListener('click', () => {
+        const hidden = customPanel.style.display === 'none' || !customPanel.style.display;
+        customPanel.style.display = hidden ? 'block' : 'none';
+        customBtn.textContent = hidden ? 'Hide Customized Math' : 'Customized Math';
+      });
+    }
+
+    const btn2 = document.getElementById('calcBtn2');
+    if (btn2){
+      btn2.addEventListener('click', () => {
+        const val = id => parseFloat(document.getElementById(id).value) || 0;
+        const base = readBaseline();
+
+        const raw2 = {
+          str: base.raw.str + val('adjStr'),
+          dex: base.raw.dex + val('adjDex'),
+          int: base.raw.int + val('adjInt'),
+          luk: base.raw.luk + val('adjLuk'),
+        };
+        const pct2 = {
+          att: base.pct.att + val('adjAtt'),
+          boss: base.pct.boss + val('adjBoss'),
+          damage: base.pct.damage + val('adjDamage'),
+          critDmg: base.pct.critDmg + val('adjCritDmg'),
+        };
+        const baseAtt2 = base.baseAtt + val('adjBaseAtt');
+
+        // Final Str/Dex/Int/Luk are added directly onto Total Stat itself (not run back through
+        // the primary/secondary weighting) — e.g. Total Stat 60,000 + Final Dex 10,000 = 70,000.
+        const finalSum = val('finalStr') + val('finalDex') + val('finalInt') + val('finalLuk');
+        const totalStat2 = base.totalStat != null ? base.totalStat + finalSum : null;
+
+        document.getElementById('calcOutput2').innerHTML = buildOutput(raw2, pct2, baseAtt2, totalStat2, base.solvedBaseStats, base.baseNote, finalSum);
+      });
+    }
   }
+
 
 
   function render({ common, apStat, arcane, itemResults }){
@@ -1383,6 +1454,33 @@
 
         <button class="go" id="calcBtn" type="button" style="margin-top:14px;">Calculate</button>
         <div id="calcOutput"></div>
+
+        <button class="go" id="customBtn" type="button" style="margin-top:14px;">Customized Math</button>
+        <div id="customPanel" style="display:none;">
+          <div class="calc-subhead" style="margin-top:18px;">Adjustments +/- <span>(added on top of the Total Stats values above — positive or negative)</span></div>
+          <div class="calc-grid">
+            <label>ATT%<input type="number" id="adjAtt" placeholder="0"></label>
+            <label>Base ATT<input type="number" id="adjBaseAtt" placeholder="0"></label>
+            <label>Boss%<input type="number" id="adjBoss" placeholder="0"></label>
+            <label>Damage%<input type="number" id="adjDamage" placeholder="0"></label>
+            <label>Critical DMG%<input type="number" id="adjCritDmg" placeholder="0"></label>
+            <label>STR<input type="number" id="adjStr" placeholder="0"></label>
+            <label>DEX<input type="number" id="adjDex" placeholder="0"></label>
+            <label>INT<input type="number" id="adjInt" placeholder="0"></label>
+            <label>LUK<input type="number" id="adjLuk" placeholder="0"></label>
+          </div>
+
+          <div class="calc-subhead">Final Stats <span>(added directly to Total Stat)</span></div>
+          <div class="calc-grid">
+            <label>Final Str<input type="number" id="finalStr" placeholder="0"></label>
+            <label>Final Dex<input type="number" id="finalDex" placeholder="0"></label>
+            <label>Final Int<input type="number" id="finalInt" placeholder="0"></label>
+            <label>Final Luk<input type="number" id="finalLuk" placeholder="0"></label>
+          </div>
+
+          <button class="go" id="calcBtn2" type="button" style="margin-top:14px;">Calculate Customized</button>
+          <div id="calcOutput2"></div>
+        </div>
       </div>
     `;
 
