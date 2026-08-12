@@ -876,6 +876,7 @@
         ? { ...withPocket }
         : { str: val('calcStr'), dex: val('calcDex'), int: val('calcInt'), luk: val('calcLuk') };
       const pct = { att: val('calcAtt'), boss: val('calcBoss'), damage: val('calcDamage'), critDmg: val('calcCritDmg') };
+      const baseAtt = val('calcBaseAtt');
 
       // total_stat = sum(primary stats) + 0.25 x sum(secondary stats) — a secondary point is
       // worth a quarter of a primary point toward the character's effective total.
@@ -903,12 +904,14 @@
         statGain[k] = (contribution / denom) * 100;
       });
 
-      // % power gained by adding one percentage point. ATT% and Critical Damage% each have
-      // their own 100% baseline. Boss% and Damage% share one combined baseline — they stack
-      // into the same multiplier against boss monsters, so 1% of either is worth the same.
+      // % power gained by adding one percentage point. ATT% has its own 100% baseline. Critical
+      // Damage% is measured against the game's base 35% crit damage multiplier (1 + critDmg + 0.35),
+      // so 1% crit damage is worth less the more crit damage% you already have. Boss% and Damage%
+      // share one combined baseline — they stack into the same multiplier against boss monsters,
+      // so 1% of either is worth the same.
       const pctGain = {
         att: (1 / (100 + pct.att)) * 100,
-        critDmg: (1 / (100 + pct.critDmg)) * 100,
+        critDmg: 1 / (1 + (pct.critDmg / 100) + 0.35),
       };
       const bossDamageGain = (1 / (100 + pct.boss + pct.damage)) * 100;
       pctGain.boss = bossDamageGain;
@@ -923,6 +926,35 @@
             <div class="calc-row-head">1% ${PCT_LABELS_SHORT[pk]} <span class="calc-gain">≈ ${pg.toFixed(3)}% power gain</span></div>
             <div class="calc-row-equiv">${equivalentsHtml(statGain, pg)}</div>
           </div>`).join('');
+
+      // % power gained by adding 1 point of Base ATT — since power scales with
+      // base_att x (1 + att%/100 + ...), a flat point of base ATT is worth 1/base_att of
+      // your current power regardless of your ATT% (that factor cancels out).
+      const baseAttGain = baseAtt > 0 ? (1 / baseAtt) * 100 : null;
+      const baseAttRow = baseAttGain != null ? `
+          <div class="calc-row">
+            <div class="calc-row-head">1 Base ATT <span class="calc-gain">≈ ${baseAttGain.toFixed(3)}% power gain</span></div>
+            <div class="calc-row-equiv">${equivalentsHtml(statGain, baseAttGain)}</div>
+          </div>` : '';
+
+      // % power gained by adding 1 raw point of this class's primary or secondary stat,
+      // independent of whatever's typed into the STR/DEX/INT/LUK boxes above — a primary
+      // point contributes its full (1 + gear%) value to total_stat, a secondary point only
+      // a quarter of that.
+      let primarySecondaryRows = '';
+      if (classStats && totalStat){
+        const rowsForRole = (keys, role) => keys.map(k => {
+          const mult = 1 + (statTotalPct[k] || 0) / 100;
+          const contribution = role === 'secondary' ? 0.25 * mult : mult;
+          const gain = (contribution / totalStat) * 100;
+          return `
+          <div class="calc-row">
+            <div class="calc-row-head">1 ${STAT_LABELS_SHORT[k]} <span class="calc-gain">(${role}) ≈ ${gain.toFixed(3)}% power gain</span></div>
+            <div class="calc-row-equiv">${equivalentsHtml(statGain, gain)}</div>
+          </div>`;
+        }).join('');
+        primarySecondaryRows = rowsForRole(classStats.primary, 'primary') + rowsForRole(classStats.secondary, 'secondary');
+      }
 
       // --- Base stat, solved from the pocket item's known raw stats + its own All Stat %,
       // using the before/after fully-buffed totals: ---
@@ -959,7 +991,12 @@
           ].filter(({k}) => baseStats[k] != null);
 
           baseHtml += relevant.map(({k, role}) => {
-            const gain = (baseStats[k] * 0.01 / totalStat) * 100;
+            // 1% of the solved base stat's power gain. A primary stat's base value feeds
+            // total_stat directly; a secondary stat's only feeds it at 0.25x, per the game's
+            // formula: (0.01 x secondary_stat x 0.25) / effective_total_stat.
+            const gain = role === 'secondary'
+              ? (0.01 * baseStats[k] * 0.25 / totalStat) * 100
+              : (baseStats[k] * 0.01 / totalStat) * 100;
             return `
               <div class="calc-row">
                 <div class="calc-row-head">1% ${STAT_LABELS_SHORT[k]} <span class="calc-gain">(${role}) ≈ ${gain.toFixed(3)}% power gain</span></div>
@@ -969,7 +1006,7 @@
         }
       }
 
-      document.getElementById('calcOutput').innerHTML = totalStatLine + rows + baseHtml;
+      document.getElementById('calcOutput').innerHTML = totalStatLine + rows + baseAttRow + primarySecondaryRows + baseHtml;
     });
   }
 
@@ -1173,6 +1210,7 @@
         </div>
         <div class="calc-grid">
           <label>ATT%<input type="number" id="calcAtt" min="0" placeholder="0"></label>
+          <label>Base ATT<input type="number" id="calcBaseAtt" min="0" placeholder="0"></label>
           <label>Boss%<input type="number" id="calcBoss" min="0" placeholder="0"></label>
           <label>Damage%<input type="number" id="calcDamage" min="0" placeholder="0"></label>
           <label>Critical DMG%<input type="number" id="calcCritDmg" min="0" placeholder="0"></label>
