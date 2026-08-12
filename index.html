@@ -737,7 +737,7 @@
   // Potential/bonus-potential option labels look like "ATT: +12%" or "Critical Damage: +9%".
   // msu.io labels the All Stat % option "STATR" rather than "All Stat" — normalize it here so
   // both the per-item display and the combined totals read (and group) correctly.
-  const POTENTIAL_NAME_ALIASES = { statr: 'All Stat' };
+  const POTENTIAL_NAME_ALIASES = { statr: 'All Stat', 'all stats': 'All Stat', 'all stat': 'All Stat' };
 
   function parsePercentPotential(label){
     const m = /^(.*):\s*\+?(-?\d+(?:\.\d+)?)\s*%$/.exec(String(label).trim());
