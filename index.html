@@ -1003,6 +1003,40 @@
                 <div class="calc-row-equiv">${equivalentsHtml(statGain, gain)}</div>
               </div>`;
           }).join('');
+
+          // 1% All Stat bumps every base stat — primary AND secondary — by 1% at once:
+          // (primary_base x 0.01 + 0.25 x 0.01 x total_secondary_base) / effective_total_stat.
+          const havePrimaryBase = classStats.primary.some(k => baseStats[k] != null);
+          const haveSecondaryBase = classStats.secondary.some(k => baseStats[k] != null);
+          if (havePrimaryBase || haveSecondaryBase){
+            const primaryBaseSum = classStats.primary.reduce((s, k) => s + (baseStats[k] || 0), 0);
+            const secondaryBaseSum = classStats.secondary.reduce((s, k) => s + (baseStats[k] || 0), 0);
+            const allStatGain = ((primaryBaseSum * 0.01 + 0.25 * 0.01 * secondaryBaseSum) / totalStat) * 100;
+
+            // Same power gain, re-expressed in each of the four comparison units the calc
+            // already uses: a % bonus to just the primary stat(s), a % bonus to just the
+            // secondary stat(s), a flat base point of primary, a flat base point of secondary.
+            const primaryPctGain = (primaryBaseSum * 0.01 / totalStat) * 100;
+            const secondaryPctGain = (0.25 * 0.01 * secondaryBaseSum / totalStat) * 100;
+            const gainPerBasePrimaryPoint = (1 / totalStat) * 100;
+            const gainPerBaseSecondaryPoint = (0.25 / totalStat) * 100;
+
+            const primaryLabel = classStats.primary.map(k => STAT_LABELS_SHORT[k]).join('+');
+            const secondaryLabel = classStats.secondary.map(k => STAT_LABELS_SHORT[k]).join('+');
+
+            const allStatEquiv = [
+              primaryLabel && primaryPctGain ? `<span><b>${(allStatGain / primaryPctGain).toFixed(2)}</b> % ${primaryLabel} (primary)</span>` : '',
+              secondaryLabel && secondaryPctGain ? `<span><b>${(allStatGain / secondaryPctGain).toFixed(2)}</b> % ${secondaryLabel} (secondary)</span>` : '',
+              primaryLabel ? `<span><b>${(allStatGain / gainPerBasePrimaryPoint).toFixed(2)}</b> base ${primaryLabel} (primary)</span>` : '',
+              secondaryLabel ? `<span><b>${(allStatGain / gainPerBaseSecondaryPoint).toFixed(2)}</b> base ${secondaryLabel} (secondary)</span>` : '',
+            ].filter(Boolean).join('');
+
+            baseHtml += `
+              <div class="calc-row">
+                <div class="calc-row-head">1% All Stat <span class="calc-gain">≈ ${allStatGain.toFixed(3)}% power gain</span></div>
+                <div class="calc-row-equiv">${allStatEquiv || '<span class="empty-note">Not enough solved base stats to compare</span>'}</div>
+              </div>`;
+          }
         }
       }
 
