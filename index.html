@@ -645,6 +645,47 @@
     pocket:'Pocket', badge:'Badge', emblem:'Emblem'
   };
 
+  // Class -> primary/secondary stat(s). Stat keys line up with apStat / arcaneSymbols.totalStat /
+  // the equipment-total keys used elsewhere on this page (str, dex, int, luk, hp).
+  const CLASS_STAT_TABLE = [
+    [['Hero','Paladin','Dark Knight'], ['str'], ['dex']],
+    [['Bowmaster','Marksman','Mercedes','Wind Archer','Wild Hunter','Pathfinder','Mechanic','Corsair'], ['dex'], ['str']],
+    [['Buccaneer','Cannoneer','Ark','Shade','Thunder Breaker','Mihile','Demon Slayer','Adele','Aran','Zero','Kaiser','Dawn Warrior','Hayato','Blaster'], ['str'], ['dex']],
+    [['Luminous','Fire/Poison Archmage','Fire Poison Archmage','Ice/Lightning Archmage','Ice Lightning Archmage','Bishop','Battle Mage','Evan','Kanna','Illium','Lara','Kinesis','Beast Tamer'], ['int'], ['luk']],
+    [['Night Lord','Night Walker','Phantom','Hoyoung','Khali'], ['luk'], ['dex']],
+    [['Shadower','Dual Blade','Cadena'], ['luk'], ['dex','str']],
+    [['Xenon'], ['str','dex','luk'], []],
+    [['Demon Avenger'], ['hp'], ['str']],
+  ];
+
+  const STAT_LABEL_ALL = { str:'STR', dex:'DEX', int:'INT', luk:'LUK', hp:'HP' };
+
+  const STAT_POTENTIAL_ALIASES = {
+    str: ['str'], dex: ['dex'], int: ['int'], luk: ['luk'], hp: ['hp', 'max hp'],
+  };
+  const ALL_STAT_ALIASES = ['all stat', 'all stats'];
+
+  function normalizeClassName(s){
+    return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+  }
+
+  function lookupClassStats(jobName){
+    const norm = normalizeClassName(jobName);
+    for (const [names, primary, secondary] of CLASS_STAT_TABLE){
+      if (names.some(n => normalizeClassName(n) === norm)) return { primary, secondary };
+    }
+    return null;
+  }
+
+  function sumPotentialByAliases(potentialTotals, aliases){
+    let sum = 0;
+    Object.entries(potentialTotals).forEach(([k, v]) => {
+      const norm = k.toLowerCase().trim();
+      if (aliases.includes(norm)) sum += v;
+    });
+    return sum;
+  }
+
   function addItemStats(totals, stats){
     if (!stats) return;
     NESTED_STAT_KEYS.forEach(k=>{
@@ -736,6 +777,30 @@
     });
 
     const failedCount = itemResults.filter(r => !r.ok).length;
+
+    // --- Total Primary Stat -------------------------------------------
+    // total_primary = (AP base + combined equipment stat) x (1 + (primary% + all-stat%)/100) + arcane stat
+    // For multi-stat classes (Xenon) each component stat is computed the same way and summed.
+    const jobName = common.job?.jobName || '';
+    const classStats = lookupClassStats(jobName);
+    const allStatPct = sumPotentialByAliases(potentialTotals, ALL_STAT_ALIASES);
+
+    let primaryBreakdown = null;
+    if (classStats){
+      const components = classStats.primary.map(statKey => {
+        const apBase = apStat?.[statKey]?.base ?? 0;
+        const equipStat = totals[statKey] || 0;
+        const arcaneStat = arcane?.totalStat?.[statKey] || 0;
+        const primaryPct = sumPotentialByAliases(potentialTotals, STAT_POTENTIAL_ALIASES[statKey] || []);
+        const multiplier = 1 + (primaryPct + allStatPct) / 100;
+        const total = (apBase + equipStat) * multiplier + arcaneStat;
+        return { statKey, apBase, equipStat, arcaneStat, primaryPct, multiplier, total };
+      });
+      primaryBreakdown = {
+        components,
+        grandTotal: components.reduce((sum, c) => sum + c.total, 0),
+      };
+    }
 
     const charHtml = `
       <div class="char-card">
@@ -841,7 +906,30 @@
       </div>
     `;
 
-    els.results.innerHTML = charHtml + arcaneHtml + apHtml + equipHtml + totalHtml + potentialTotalHtml;
+    const primaryStatHtml = classStats ? `
+      <div class="panel total-panel">
+        <h3>Total Primary Stat <span class="n">${escapeHtml(jobName)} · primary: ${classStats.primary.map(k=>STAT_LABEL_ALL[k]).join(' + ')}${classStats.secondary.length ? ' · secondary: '+classStats.secondary.map(k=>STAT_LABEL_ALL[k]).join(' + ') : ''}</span></h3>
+        <p class="desc">(AP base + equipment total) × (1 + (primary% + all-stat%) / 100) + arcane symbol stat${primaryBreakdown.components.length > 1 ? ', summed across each primary component stat' : ''}. All-stat potential: +${fmt(allStatPct)}%.</p>
+        <div class="stat-grid">
+          ${primaryBreakdown.components.map(c => `
+            <div class="stat violet">
+              <div class="k">${STAT_LABEL_ALL[c.statKey]} — AP ${fmt(c.apBase)} + Equip ${fmt(c.equipStat)}, ×${c.multiplier.toFixed(3)}, +Arcane ${fmt(c.arcaneStat)}</div>
+              <div class="v">${fmt(Math.round(c.total))}</div>
+            </div>
+          `).join('')}
+          ${primaryBreakdown.components.length > 1 ? `
+            <div class="stat amber"><div class="k">Total (all components)</div><div class="v">${fmt(Math.round(primaryBreakdown.grandTotal))}</div></div>
+          ` : ''}
+        </div>
+      </div>
+    ` : `
+      <div class="panel">
+        <h3>Total Primary Stat</h3>
+        <p class="desc">Class "${escapeHtml(jobName || 'unknown')}" isn't in the built-in stat table — add it to <code>CLASS_STAT_TABLE</code> near the top of the script to enable this calculation.</p>
+      </div>
+    `;
+
+    els.results.innerHTML = charHtml + arcaneHtml + apHtml + equipHtml + totalHtml + potentialTotalHtml + primaryStatHtml;
     els.results.classList.add('show');
     els.results.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
