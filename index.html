@@ -988,6 +988,7 @@
       // using the before/after fully-buffed totals: ---
       // difference = pocket_raw_stat x (1 + current_total_%/100) + base x (pocket_all_stat_%/100)
       let baseHtml = '';
+      let solvedBaseStats = null; // captured for the Potential Ranking section below
       if (!pocketStats){
         baseHtml = `<p class="desc">No pocket item found on this character's equipped gear — equip one to unlock the base-stat solve.</p>`;
       } else if (!pocketStats.statrPct){
@@ -1002,6 +1003,7 @@
           const numerator = diff - pocketRaw * existingMult;
           baseStats[k] = numerator / (pocketStats.statrPct / 100);
         });
+        solvedBaseStats = baseStats;
 
         const baseEntries = Object.entries(baseStats);
         baseHtml = `
@@ -1068,7 +1070,103 @@
         }
       }
 
-      document.getElementById('calcOutput').innerHTML = totalStatLine + rows + baseAttRow + primarySecondaryRows + levelStatRows + baseHtml;
+      // --- Potential Ranking: a fixed set of common potential-line tiers, priced with the
+      // same power-gain-% math used everywhere above, ranked highest gain first so you can
+      // see which tier of which line is actually worth more on this character right now.
+      let potentialRankingHtml = '';
+      if (classStats && totalStat){
+        const primaryKeys = classStats.primary;
+        const secondaryKeys = classStats.secondary;
+        const primaryLabelStr = primaryKeys.map(k => STAT_LABELS_SHORT[k]).join('+') || 'Primary';
+
+        // "regular" (mult-based) gain per 1 raw point of a stat, averaged across the class's
+        // primary/secondary stats — same formula as the "1 STAT (primary/secondary)" rows and
+        // the per-10-levels rows above. Used for flat/level-based lines, and to convert every
+        // ranked line's gain into "primary stat equivalent" points.
+        const avgRegularGain = (keys, role) => {
+          if (!keys.length) return null;
+          const total = keys.reduce((s, k) => {
+            const mult = 1 + (statTotalPct[k] || 0) / 100;
+            const contribution = role === 'secondary' ? 0.25 * mult : mult;
+            return s + (contribution / totalStat) * 100;
+          }, 0);
+          return total / keys.length;
+        };
+        const primaryPointGain = avgRegularGain(primaryKeys, 'primary');
+
+        // "% stat" (all_stat / primary) potential lines apply to the character's solved BASE
+        // stat, same as the "1% STAT" / "1% All Stat" rows above — needs the pocket
+        // before/after solve, so these come back null until that's filled in.
+        const primaryBaseSum = solvedBaseStats ? primaryKeys.reduce((s, k) => s + (solvedBaseStats[k] || 0), 0) : null;
+        const secondaryBaseSum = solvedBaseStats ? secondaryKeys.reduce((s, k) => s + (solvedBaseStats[k] || 0), 0) : null;
+        const havePrimaryBase = primaryBaseSum != null && primaryKeys.some(k => solvedBaseStats[k] != null);
+        const haveSecondaryBase = secondaryBaseSum != null && secondaryKeys.some(k => solvedBaseStats[k] != null);
+        const primaryPctPerPoint = havePrimaryBase ? (primaryBaseSum * 0.01 / totalStat) * 100 : null;
+        const secondaryPctPerPoint = haveSecondaryBase ? (0.25 * 0.01 * secondaryBaseSum / totalStat) * 100 : null;
+        const allStatPctPerPoint = (primaryPctPerPoint != null || secondaryPctPerPoint != null)
+          ? (primaryPctPerPoint || 0) + (secondaryPctPerPoint || 0)
+          : null;
+
+        const levelBlocks = typeof level === 'number' && level > 0 ? Math.floor(level / 10) : null;
+
+        const potentialDefs = [
+          { label: '36% Primary', calc: () => primaryPctPerPoint != null ? 36 * primaryPctPerPoint : null },
+          { label: '33% Primary', calc: () => primaryPctPerPoint != null ? 33 * primaryPctPerPoint : null },
+          { label: '30% Primary', calc: () => primaryPctPerPoint != null ? 30 * primaryPctPerPoint : null },
+          { label: '15% All Stat + 12% Primary', calc: () => (allStatPctPerPoint != null && primaryPctPerPoint != null) ? 15 * allStatPctPerPoint + 12 * primaryPctPerPoint : null },
+          { label: '18% Primary + 9% All Stat', calc: () => (allStatPctPerPoint != null && primaryPctPerPoint != null) ? 18 * primaryPctPerPoint + 9 * allStatPctPerPoint : null },
+          { label: '18% All Stat + 9% Primary', calc: () => (allStatPctPerPoint != null && primaryPctPerPoint != null) ? 18 * allStatPctPerPoint + 9 * primaryPctPerPoint : null },
+          { label: '27% All Stat', calc: () => allStatPctPerPoint != null ? 27 * allStatPctPerPoint : null },
+          { label: '24% All Stat', calc: () => allStatPctPerPoint != null ? 24 * allStatPctPerPoint : null },
+          { label: '24% Primary', calc: () => primaryPctPerPoint != null ? 24 * primaryPctPerPoint : null },
+          { label: '21% Primary', calc: () => primaryPctPerPoint != null ? 21 * primaryPctPerPoint : null },
+          { label: '15% All Stat', calc: () => allStatPctPerPoint != null ? 15 * allStatPctPerPoint : null },
+          { label: '9% Primary', calc: () => primaryPctPerPoint != null ? 9 * primaryPctPerPoint : null },
+          { label: '+1 Primary Stat / 10 Lv (round down)', calc: () => (levelBlocks != null && primaryPointGain != null) ? levelBlocks * 1 * primaryPointGain : null },
+          { label: '+2 Primary Stat / 10 Lv (round down)', calc: () => (levelBlocks != null && primaryPointGain != null) ? levelBlocks * 2 * primaryPointGain : null },
+          { label: '10 ATT', calc: () => baseAtt > 0 ? 10 * (1 / baseAtt) * 100 : null },
+          { label: '11 ATT', calc: () => baseAtt > 0 ? 11 * (1 / baseAtt) * 100 : null },
+          { label: '12 ATT', calc: () => baseAtt > 0 ? 12 * (1 / baseAtt) * 100 : null },
+          { label: '14 ATT', calc: () => baseAtt > 0 ? 14 * (1 / baseAtt) * 100 : null },
+          { label: '7% Primary', calc: () => primaryPctPerPoint != null ? 7 * primaryPctPerPoint : null },
+          { label: '5% Primary', calc: () => primaryPctPerPoint != null ? 5 * primaryPctPerPoint : null },
+          { label: '4% Primary', calc: () => primaryPctPerPoint != null ? 4 * primaryPctPerPoint : null },
+          { label: '4% All Stat', calc: () => allStatPctPerPoint != null ? 4 * allStatPctPerPoint : null },
+          { label: '1% Critical Damage', calc: () => 1 * pctGain.critDmg },
+          { label: '3% Critical Damage', calc: () => 3 * pctGain.critDmg },
+          { label: '16 Primary Stats', calc: () => primaryPointGain != null ? 16 * primaryPointGain : null },
+          { label: '18 Primary Stat', calc: () => primaryPointGain != null ? 18 * primaryPointGain : null },
+        ];
+
+        const computed = potentialDefs.map(e => ({ label: e.label, gain: e.calc() }));
+        const ranked = computed.filter(e => e.gain != null).sort((a, b) => b.gain - a.gain);
+        const unranked = computed.filter(e => e.gain == null);
+
+        const rankRows = ranked.map((e, i) => {
+          const primaryEquiv = primaryPointGain ? e.gain / primaryPointGain : null;
+          return `
+            <div class="calc-row">
+              <div class="calc-row-head">#${i + 1} ${e.label} <span class="calc-gain">≈ ${e.gain.toFixed(3)}% power gain</span></div>
+              <div class="calc-row-equiv">${primaryEquiv != null
+                ? `<span><b>${primaryEquiv.toFixed(2)}</b> ${escapeHtml(primaryLabelStr)} equiv.</span>`
+                : '<span class="empty-note">Enter Total Stats above to convert to primary-stat equivalence</span>'}</div>
+            </div>`;
+        }).join('');
+
+        const missing = [];
+        if (primaryPctPerPoint == null || allStatPctPerPoint == null) missing.push('the pocket item\'s before/after totals above (solves base stat)');
+        if (!(baseAtt > 0)) missing.push('a Base ATT value');
+        const unrankedNote = unranked.length
+          ? `<p class="desc" style="margin-top:10px;">${unranked.length} line${unranked.length === 1 ? '' : 's'} not yet ranked — enter ${missing.join(' and ')} to include: ${unranked.map(e => escapeHtml(e.label)).join(', ')}.</p>`
+          : '';
+
+        potentialRankingHtml = `
+          <div class="calc-subhead" style="margin-top:22px;">Potential Ranking <span>(ranked by power gain %, this character's current gear)</span></div>
+          ${rankRows || '<div class="empty-note">Not enough entered above to rank any lines yet.</div>'}
+          ${unrankedNote}`;
+      }
+
+      document.getElementById('calcOutput').innerHTML = totalStatLine + rows + baseAttRow + primarySecondaryRows + levelStatRows + baseHtml + potentialRankingHtml;
     });
   }
 
