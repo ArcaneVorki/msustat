@@ -480,6 +480,15 @@
     border-color: var(--violet);
     box-shadow: 0 0 0 3px rgba(139,123,255,0.18);
   }
+  .calc-grid input:disabled{
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .calc-subhead input[type="checkbox"]{
+    accent-color: var(--violet);
+    width: 14px;
+    height: 14px;
+  }
   #calcOutput{ margin-top: 18px; display:flex; flex-direction:column; gap: 10px; }
   .calc-row{
     background: var(--bg-soft);
@@ -800,7 +809,7 @@
   }
 
   const STAT_LABELS_SHORT = { str:'STR', dex:'DEX', int:'INT', luk:'LUK' };
-  const PCT_LABELS_SHORT = { att:'ATT%', boss:'Boss%', damage:'Damage%' };
+  const PCT_LABELS_SHORT = { att:'ATT%', boss:'Boss%', damage:'Damage%', critDmg:'Critical DMG%' };
 
   // Class -> primary/secondary raw stat(s), used only for the total_stat formula in the
   // marginal calculator: total_stat = sum(primary) + 0.25 * sum(secondary).
@@ -832,12 +841,41 @@
   function wireCalculator(statTotalPct, classStats, pocketStats){
     const btn = document.getElementById('calcBtn');
     if (!btn) return;
+
+    // "Same as pocket equipped" toggle: keeps Total Stats' STR/DEX/INT/LUK synced to (and
+    // disabled in favor of) the "with pocket" row, so nothing needs to be typed twice.
+    const toggle = document.getElementById('calcSameAsPocket');
+    const totalIds = ['calcStr','calcDex','calcInt','calcLuk'];
+    const pocketIds = ['calcWithPocketStr','calcWithPocketDex','calcWithPocketInt','calcWithPocketLuk'];
+    function syncFromPocket(){
+      const checked = toggle.checked;
+      totalIds.forEach((id, i) => {
+        const el = document.getElementById(id);
+        el.disabled = checked;
+        if (checked) el.value = document.getElementById(pocketIds[i]).value;
+      });
+    }
+    if (toggle){
+      toggle.addEventListener('change', syncFromPocket);
+      pocketIds.forEach(id => document.getElementById(id).addEventListener('input', () => { if (toggle.checked) syncFromPocket(); }));
+      syncFromPocket();
+    }
+
+    function equivalentsHtml(statGain, gainValue){
+      const entries = Object.entries(statGain).map(([sk, sg]) =>
+        `<span><b>${(gainValue / sg).toFixed(2)}</b> ${STAT_LABELS_SHORT[sk]}</span>`
+      ).join('');
+      return entries || '<span class="empty-note">Enter a relevant STR/DEX/INT/LUK value above to compare</span>';
+    }
+
     btn.addEventListener('click', () => {
       const val = id => parseFloat(document.getElementById(id).value) || 0;
-      const raw = { str: val('calcStr'), dex: val('calcDex'), int: val('calcInt'), luk: val('calcLuk') };
-      const pct = { att: val('calcAtt'), boss: val('calcBoss'), damage: val('calcDamage') };
       const withoutPocket = { str: val('calcNoPocketStr'), dex: val('calcNoPocketDex'), int: val('calcNoPocketInt'), luk: val('calcNoPocketLuk') };
       const withPocket = { str: val('calcWithPocketStr'), dex: val('calcWithPocketDex'), int: val('calcWithPocketInt'), luk: val('calcWithPocketLuk') };
+      const raw = (toggle && toggle.checked)
+        ? { ...withPocket }
+        : { str: val('calcStr'), dex: val('calcDex'), int: val('calcInt'), luk: val('calcLuk') };
+      const pct = { att: val('calcAtt'), boss: val('calcBoss'), damage: val('calcDamage'), critDmg: val('calcCritDmg') };
 
       // total_stat = sum(primary stats) + 0.25 x sum(secondary stats) — a secondary point is
       // worth a quarter of a primary point toward the character's effective total.
@@ -865,10 +903,13 @@
         statGain[k] = (contribution / denom) * 100;
       });
 
-      // % power gained by adding one percentage point. ATT% has its own 100% baseline.
-      // Boss% and Damage% share one combined baseline — they stack into the same multiplier
-      // against boss monsters, so 1% of either is worth exactly the same amount.
-      const pctGain = { att: (1 / (100 + pct.att)) * 100 };
+      // % power gained by adding one percentage point. ATT% and Critical Damage% each have
+      // their own 100% baseline. Boss% and Damage% share one combined baseline — they stack
+      // into the same multiplier against boss monsters, so 1% of either is worth the same.
+      const pctGain = {
+        att: (1 / (100 + pct.att)) * 100,
+        critDmg: (1 / (100 + pct.critDmg)) * 100,
+      };
       const bossDamageGain = (1 / (100 + pct.boss + pct.damage)) * 100;
       pctGain.boss = bossDamageGain;
       pctGain.damage = bossDamageGain;
@@ -877,16 +918,11 @@
         ? `<p class="desc" style="margin:0 0 12px;">Effective total stat (${classStats.primary.map(k=>STAT_LABELS_SHORT[k]).join('+')} + 0.25 × ${classStats.secondary.length ? classStats.secondary.map(k=>STAT_LABELS_SHORT[k]).join('+') : '—'}): <b style="color:var(--text)">${totalStat.toLocaleString('en-US',{maximumFractionDigits:2})}</b></p>`
         : classStats === null ? `<p class="desc" style="margin:0 0 12px;">Class not recognized — treating each entered stat's own value as its denominator instead of a combined total_stat.</p>` : '';
 
-      const rows = Object.entries(pctGain).map(([pk, pg]) => {
-        const equivalents = Object.entries(statGain).map(([sk, sg]) =>
-          `<span><b>${(pg / sg).toFixed(2)}</b> ${STAT_LABELS_SHORT[sk]}</span>`
-        ).join('');
-        return `
+      const rows = Object.entries(pctGain).map(([pk, pg]) => `
           <div class="calc-row">
             <div class="calc-row-head">1% ${PCT_LABELS_SHORT[pk]} <span class="calc-gain">≈ ${pg.toFixed(3)}% power gain</span></div>
-            <div class="calc-row-equiv">${equivalents || '<span class="empty-note">Enter a relevant STR/DEX/INT/LUK value above to compare</span>'}</div>
-          </div>`;
-      }).join('');
+            <div class="calc-row-equiv">${equivalentsHtml(statGain, pg)}</div>
+          </div>`).join('');
 
       // --- Base stat, solved from the pocket item's known raw stats + its own All Stat %,
       // using the before/after fully-buffed totals: ---
@@ -927,6 +963,7 @@
             return `
               <div class="calc-row">
                 <div class="calc-row-head">1% ${STAT_LABELS_SHORT[k]} <span class="calc-gain">(${role}) ≈ ${gain.toFixed(3)}% power gain</span></div>
+                <div class="calc-row-equiv">${equivalentsHtml(statGain, gain)}</div>
               </div>`;
           }).join('');
         }
@@ -1127,15 +1164,22 @@
           <label>LUK<input type="number" id="calcWithPocketLuk" min="0" placeholder="0"></label>
         </div>
 
-        <div class="calc-subhead">Total stats <span>(with full buffs)</span></div>
+        <div class="calc-subhead" style="display:flex; align-items:center; justify-content:space-between;">
+          <span>Total stats <span>(with full buffs)</span></span>
+          <label style="display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:normal; color:var(--text-dim); cursor:pointer;">
+            <input type="checkbox" id="calcSameAsPocket" checked>
+            Same as pocket equipped
+          </label>
+        </div>
         <div class="calc-grid">
+          <label>ATT%<input type="number" id="calcAtt" min="0" placeholder="0"></label>
+          <label>Boss%<input type="number" id="calcBoss" min="0" placeholder="0"></label>
+          <label>Damage%<input type="number" id="calcDamage" min="0" placeholder="0"></label>
+          <label>Critical DMG%<input type="number" id="calcCritDmg" min="0" placeholder="0"></label>
           <label>STR<input type="number" id="calcStr" min="0" placeholder="0"></label>
           <label>DEX<input type="number" id="calcDex" min="0" placeholder="0"></label>
           <label>INT<input type="number" id="calcInt" min="0" placeholder="0"></label>
           <label>LUK<input type="number" id="calcLuk" min="0" placeholder="0"></label>
-          <label>ATT%<input type="number" id="calcAtt" min="0" placeholder="0"></label>
-          <label>Boss%<input type="number" id="calcBoss" min="0" placeholder="0"></label>
-          <label>Damage%<input type="number" id="calcDamage" min="0" placeholder="0"></label>
         </div>
 
         <button class="go" id="calcBtn" type="button" style="margin-top:14px;">Calculate</button>
