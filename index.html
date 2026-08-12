@@ -1345,7 +1345,7 @@
           and STR/DEX/INT/LUK gains use this character's gear % bonus (own stat % + All Stat %${allStatPct ? `, currently +${fmt(allStatPct)}%` : ''})
           against that total; ATT% has its own baseline, Boss%/Damage% share one since they stack together against boss monsters.</p>
 
-        <div class="calc-subhead" style="margin-top:0;">Stats without pocket equipped <span>(full buffs)</span></div>
+        <div class="calc-subhead" style="margin-top:0;">Stats without pocket equipped -keep same boss set amount <span>(full buffs)</span></div>
         <div class="calc-grid">
           <label>STR<input type="number" id="calcNoPocketStr" min="0" placeholder="0"></label>
           <label>DEX<input type="number" id="calcNoPocketDex" min="0" placeholder="0"></label>
@@ -1353,7 +1353,7 @@
           <label>LUK<input type="number" id="calcNoPocketLuk" min="0" placeholder="0"></label>
         </div>
 
-        <div class="calc-subhead">Stats with pocket equipped <span>(full buffs)</span></div>
+        <div class="calc-subhead">Stats with pocket equipped -- keep same boss set amount <span>(full buffs)</span></div>
         <div class="calc-grid">
           <label>STR<input type="number" id="calcWithPocketStr" min="0" placeholder="0"></label>
           <label>DEX<input type="number" id="calcWithPocketDex" min="0" placeholder="0"></label>
