@@ -58,8 +58,67 @@
   .wrap{
     max-width: 1040px;
     margin: 0 auto;
-    padding: 0 20px 96px;
+    padding: 0 20px 130px;
   }
+
+  /* ---------- Top nav ---------- */
+
+  .top-nav{
+    display: flex;
+    gap: 8px;
+    padding: 20px 20px 0;
+    max-width: 1040px;
+    margin: 0 auto;
+  }
+  .top-nav-btn{
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .top-nav-btn.active{ border-color: var(--violet); color: var(--text); background: rgba(139,123,255,0.14); }
+  .top-nav-btn:not(.active):hover{ color: var(--text); border-color: var(--violet-dim); }
+
+  /* ---------- Bottom banner ---------- */
+
+  .banner{
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    background: rgba(12,13,19,0.92);
+    backdrop-filter: blur(6px);
+    z-index: 100;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.35);
+  }
+  .banner-btn{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--border);
+  }
+  .banner-btn.donate{ background: rgba(95,217,160,0.12); color: var(--good); border-color: rgba(95,217,160,0.3); }
+  .banner-btn.donate:hover{ background: rgba(95,217,160,0.2); }
+  .banner-btn.subscribe{ background: rgba(255,107,107,0.12); color: var(--danger); border-color: rgba(255,107,107,0.3); }
+  .banner-btn.subscribe:hover{ background: rgba(255,107,107,0.2); }
 
   /* ---------- Header / hero ---------- */
 
@@ -541,6 +600,12 @@
 </style>
 </head>
 <body>
+
+<div class="top-nav">
+  <a class="top-nav-btn" href="https://arcanevorki.github.io/msuban/">Ban Tracker</a>
+  <a class="top-nav-btn" href="https://arcanevorki.github.io/msumvp/">MVP Dashboard</a>
+  <span class="top-nav-btn active">MSU Stat</span>
+</div>
 
 <div class="wrap">
 
@@ -1492,6 +1557,11 @@
 
 })();
 </script>
+
+<div class="banner">
+  <a class="banner-btn donate" href="https://msu.io/marketplace/inventory/0xCfA397cCF402cAedbd595F7dA8C39E8e919820EA" target="_blank" rel="noopener noreferrer">Donate?</a>
+  <a class="banner-btn subscribe" href="https://www.youtube.com/@arcanevorki" target="_blank" rel="noopener noreferrer">Sub to YouTube</a>
+</div>
 
 </body>
 </html>
