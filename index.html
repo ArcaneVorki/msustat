@@ -928,6 +928,19 @@
       syncFromPocket();
     }
 
+    // Full final-damage formula, used only for the Customized Math "Overall Damage Gain"
+    // comparison: final_damage ∝ (1 + att%/100) x base_att x (1 + (boss%+damage%)/100)
+    // x (1 + critDmg%/100 + 0.35) x effective_total_stat. All four factors are multiplied
+    // together, so the % gain from before -> after captures every change at once instead of
+    // pricing each stat separately like the rows below do.
+    function computeFinalDamageScore(pct, baseAtt, totalStat){
+      if (totalStat == null || !(baseAtt > 0)) return null;
+      const attMult = 1 + (pct.att || 0) / 100;
+      const bossDmgMult = 1 + ((pct.boss || 0) + (pct.damage || 0)) / 100;
+      const critMult = 1 + (pct.critDmg || 0) / 100 + 0.35;
+      return baseAtt * attMult * bossDmgMult * critMult * totalStat;
+    }
+
     function equivalentsHtml(statGain, gainValue){
       const entries = Object.entries(statGain).map(([sk, sg]) =>
         `<span><b>${(gainValue / sg).toFixed(2)}</b> ${STAT_LABELS_SHORT[sk]}</span>`
@@ -1301,7 +1314,24 @@
         const finalSum = val('finalStr') + val('finalDex') + val('finalInt') + val('finalLuk');
         const totalStat2 = base.totalStat != null ? base.totalStat + finalSum : null;
 
-        document.getElementById('calcOutput2').innerHTML = buildOutput(raw2, pct2, baseAtt2, totalStat2, base.solvedBaseStats, base.baseNote, finalSum);
+        // Overall % gain: prices every adjustment at once via the full final-damage formula,
+        // comparing the "before" baseline (Total Stats panel above) against "after" (baseline
+        // + Adjustments +/- + Final Stats).
+        const beforeScore = computeFinalDamageScore(base.pct, base.baseAtt, base.totalStat);
+        const afterScore = computeFinalDamageScore(pct2, baseAtt2, totalStat2);
+        let overallHtml;
+        if (beforeScore != null && afterScore != null && beforeScore > 0){
+          const gainPct = (afterScore / beforeScore - 1) * 100;
+          overallHtml = `
+            <div class="calc-row" style="border-color:var(--violet-dim);">
+              <div class="calc-row-head">Overall Damage Gain <span class="calc-gain">before → after, full formula</span></div>
+              <div class="calc-row-equiv"><span><b>${gainPct >= 0 ? '+' : ''}${fmt(gainPct)}%</b> total damage</span></div>
+            </div>`;
+        } else {
+          overallHtml = `<p class="desc" style="margin:0 0 12px;">Enter Base ATT and Total Stats (class-recognized primary/secondary) above to see the overall before → after % damage gain.</p>`;
+        }
+
+        document.getElementById('calcOutput2').innerHTML = overallHtml + buildOutput(raw2, pct2, baseAtt2, totalStat2, base.solvedBaseStats, base.baseNote, finalSum);
       });
     }
   }
