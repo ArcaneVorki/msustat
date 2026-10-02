@@ -621,7 +621,7 @@
       </div>
       <button class="go" id="goBtn" type="submit">Search</button>
     </form>
-    <div class="hint">try <button type="button" data-demo="DBX92">DBX92</button></div>
+    <div class="hint">try <button type="button" data-demo="Target">Target</button></div>
 
     <div class="status" id="status"><span class="spinner"></span><span id="statusText">Working…</span></div>
     <div class="error-box" id="errorBox"></div>
@@ -1125,13 +1125,10 @@
             const secondaryBaseSum = classStats.secondary.reduce((s, k) => s + (solvedBaseStats[k] || 0), 0);
             const allStatGain = ((primaryBaseSum * 0.01 + 0.25 * 0.01 * secondaryBaseSum) / totalStat) * 100;
 
-            // Same power gain, re-expressed in each of the four comparison units the calc
-            // already uses: a % bonus to just the primary stat(s), a % bonus to just the
-            // secondary stat(s), a flat base point of primary, a flat base point of secondary.
+            // Same power gain, re-expressed as a % bonus to just the primary stat(s) and
+            // a % bonus to just the secondary stat(s).
             const primaryPctGain = (primaryBaseSum * 0.01 / totalStat) * 100;
             const secondaryPctGain = (0.25 * 0.01 * secondaryBaseSum / totalStat) * 100;
-            const gainPerBasePrimaryPoint = (1 / totalStat) * 100;
-            const gainPerBaseSecondaryPoint = (0.25 / totalStat) * 100;
 
             const primaryLabel = classStats.primary.map(k => STAT_LABELS_SHORT[k]).join('+');
             const secondaryLabel = classStats.secondary.map(k => STAT_LABELS_SHORT[k]).join('+');
@@ -1139,8 +1136,6 @@
             const allStatEquiv = [
               primaryLabel && primaryPctGain ? `<span><b>${(allStatGain / primaryPctGain).toFixed(2)}</b> % ${primaryLabel} (primary)</span>` : '',
               secondaryLabel && secondaryPctGain ? `<span><b>${(allStatGain / secondaryPctGain).toFixed(2)}</b> % ${secondaryLabel} (secondary)</span>` : '',
-              primaryLabel ? `<span><b>${(allStatGain / gainPerBasePrimaryPoint).toFixed(2)}</b> base ${primaryLabel} (primary)</span>` : '',
-              secondaryLabel ? `<span><b>${(allStatGain / gainPerBaseSecondaryPoint).toFixed(2)}</b> base ${secondaryLabel} (secondary)</span>` : '',
             ].filter(Boolean).join('');
 
             baseHtml += `
@@ -1213,6 +1208,7 @@
           { label: '14 ATT', calc: () => baseAtt > 0 ? 14 * (1 / baseAtt) * 100 : null },
           { label: '7% Primary', calc: () => primaryPctPerPoint != null ? 7 * primaryPctPerPoint : null },
           { label: '5% Primary', calc: () => primaryPctPerPoint != null ? 5 * primaryPctPerPoint : null },
+          { label: '5% All Stat', calc: () => allStatPctPerPoint != null ? 5 * allStatPctPerPoint : null },
           { label: '4% Primary', calc: () => primaryPctPerPoint != null ? 4 * primaryPctPerPoint : null },
           { label: '4% All Stat', calc: () => allStatPctPerPoint != null ? 4 * allStatPctPerPoint : null },
           { label: '1% Critical Damage', calc: () => 1 * pctGain.critDmg },
